@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
 from telegram.error import TelegramError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from yt_dlp.utils import DownloadError
@@ -38,7 +39,11 @@ def is_allowed(update: Update) -> bool:
 
 async def deny(update: Update) -> None:
     if update.effective_message:
-        await update.effective_message.reply_text("❌ Kamu tidak diizinkan menggunakan bot ini.")
+        await update.effective_message.reply_text(
+            "🔒 <b>Akses ditolak</b>\n\n"
+            "Bot ini hanya dapat digunakan oleh pemilik yang dikonfigurasi.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -46,9 +51,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await deny(update)
         return
     await update.effective_message.reply_text(
-        "👋 Halo! Kirim link video TikTok publik untuk diunduh.\n\n"
-        "Contoh:\nhttps://www.tiktok.com/@username/video/123456789\n\n"
-        "Gunakan /help untuk bantuan."
+        "👋 <b>Selamat datang di TikTok Downloader</b>\n\n"
+        "Kirim link video TikTok publik dan bot akan membantu mengunduhnya.\n\n"
+        "<b>Cara menggunakan:</b>\n"
+        "1. Kirim link TikTok\n"
+        "2. Pilih kualitas video\n"
+        "3. Tunggu proses selesai\n\n"
+        "<b>Contoh:</b>\n"
+        "<code>https://vt.tiktok.com/...</code>\n\n"
+        "Gunakan /help untuk bantuan.",
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -57,8 +69,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await deny(update)
         return
     await update.effective_message.reply_text(
-        "Kirim satu link video TikTok publik setiap kali.\n"
-        "Bot tidak mendukung video private, login, DRM, atau link non-TikTok."
+        "❓ <b>Bantuan</b>\n\n"
+        "Kirim satu link video TikTok publik setiap kali, lalu pilih kualitas yang diinginkan.\n\n"
+        "<b>Didukung:</b>\n"
+        "• Link TikTok panjang\n"
+        "• Link <code>vm.tiktok.com</code>\n"
+        "• Link <code>vt.tiktok.com</code>\n\n"
+        "<b>Tidak didukung:</b>\n"
+        "• Video private\n"
+        "• Video yang membutuhkan login\n"
+        "• DRM atau access control",
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -71,14 +92,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = (message.text or "").strip()
     if not is_tiktok_url(text):
         await message.reply_text(
-            "❌ URL TikTok tidak valid.\n"
-            "Silakan kirim link video TikTok yang dapat diakses secara publik."
+            "❌ <b>URL TikTok tidak valid</b>\n\n"
+            "Silakan kirim link video TikTok yang dapat diakses secara publik.",
+            parse_mode=ParseMode.HTML,
         )
         return
 
     context.user_data["pending_url"] = text
     await message.reply_text(
-        "Pilih kualitas video:",
+        "🎬 <b>Video TikTok diterima</b>\n\n"
+        "Pilih kualitas download:\n"
+        "• Biasa: ukuran lebih kecil\n"
+        "• HD: kualitas lebih tinggi, ukuran lebih besar",
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Biasa (lebih kecil)", callback_data="quality:normal"),
@@ -102,10 +127,16 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     url = context.user_data.pop("pending_url", None)
     quality = query.data.split(":", 1)[1] if query.data else "normal"
     if not url or quality not in {"normal", "hd"}:
-        await query.edit_message_text("❌ Permintaan download sudah tidak tersedia. Kirim URL TikTok lagi.")
+        await query.edit_message_text(
+            "❌ <b>Permintaan sudah tidak tersedia</b>\n\nKirim URL TikTok lagi.",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
-    status = await query.edit_message_text("⏳ Memproses video...")
+    status = await query.edit_message_text(
+        "⏳ <b>Menyiapkan download...</b>",
+        parse_mode=ParseMode.HTML,
+    )
     file_path: Path | None = None
     user_id = update.effective_user.id
 
@@ -128,20 +159,33 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not file_path.exists():
             raise FileNotFoundError("Downloaded file was not found")
         if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
-            await status.edit_text("⚠️ Video berhasil diunduh, tetapi ukurannya terlalu besar untuk dikirim oleh bot.\n\nSilakan gunakan video yang lebih kecil.")
+            await status.edit_text(
+                "⚠️ <b>Video terlalu besar</b>\n\n"
+                "Video berhasil diunduh, tetapi ukurannya melebihi batas Telegram.\n"
+                "Silakan pilih video yang lebih kecil.",
+                parse_mode=ParseMode.HTML,
+            )
             return
 
-        await status.edit_text("📥 Video berhasil diunduh.\n📤 Mengirim video...")
+        await status.edit_text(
+            "✅ <b>Download selesai</b>\n\n📤 Mengirim video ke Telegram...",
+            parse_mode=ParseMode.HTML,
+        )
         logger.info("Upload started for user %s", user_id)
         with file_path.open("rb") as video:
-            await message.reply_video(video=video, caption="✅ Selesai!")
+            await message.reply_video(
+                video=video,
+                caption="🎉 <b>Video berhasil dikirim!</b>\n\nFile sementara sudah dibersihkan.",
+                parse_mode=ParseMode.HTML,
+            )
         logger.info("Upload completed for user %s", user_id)
     except DownloadError:
         logger.exception("yt-dlp failed for user %s", user_id)
         try:
             await status.edit_text(
-                "❌ TikTok tidak dapat diproses oleh yt-dlp saat ini.\n\n"
-                "Pastikan video publik dan coba lagi setelah memperbarui yt-dlp."
+                "❌ <b>Download gagal</b>\n\n"
+                "TikTok tidak dapat memproses video ini saat ini. Pastikan video publik dan coba lagi.",
+                parse_mode=ParseMode.HTML,
             )
         except TelegramError:
             logger.exception("Could not update status message")
@@ -149,15 +193,23 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.warning("Telegram upload timed out for user %s", user_id)
         try:
             await status.edit_text(
-                "❌ Upload ke Telegram timeout.\n\n"
-                "Coba gunakan kualitas Biasa atau video yang lebih kecil."
+                "⏱️ <b>Upload timeout</b>\n\n"
+                "Coba gunakan kualitas Biasa atau video yang lebih kecil.",
+                parse_mode=ParseMode.HTML,
             )
         except TelegramError:
             logger.warning("Could not update timeout status message")
     except Exception:
         logger.exception("Download or upload failed for user %s", user_id)
         try:
-            await status.edit_text("❌ Gagal mengunduh video.\n\nPastikan:\n• URL TikTok valid\n• video dapat diakses secara publik\n• video tidak sedang dihapus/private")
+            await status.edit_text(
+                "❌ <b>Download gagal</b>\n\n"
+                "Pastikan:\n"
+                "• URL TikTok valid\n"
+                "• video dapat diakses secara publik\n"
+                "• video tidak sedang dihapus atau private",
+                parse_mode=ParseMode.HTML,
+            )
         except TelegramError:
             logger.exception("Could not update status message")
     finally:
