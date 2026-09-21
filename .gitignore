@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+downloads/*
+!downloads/.gitkeep
+venv/
+.venv/
+node_modules/
+*.log
+.idea/
+.vscode/
