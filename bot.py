@@ -104,6 +104,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "Pilih kualitas download:\n"
         "• Biasa: ukuran lebih kecil\n"
         "• HD: kualitas lebih tinggi, ukuran lebih besar",
+        parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Biasa (lebih kecil)", callback_data="quality:normal"),
@@ -175,7 +176,7 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         with file_path.open("rb") as video:
             await message.reply_video(
                 video=video,
-                caption="🎉 <b>Video berhasil dikirim!</b>\n\nFile sementara sudah dibersihkan.",
+                caption="🎉 <b>Video berhasil dikirim!</b>\n\nFile tadi udah dibersihin.",
                 parse_mode=ParseMode.HTML,
             )
         logger.info("Upload completed for user %s", user_id)
