@@ -5,14 +5,14 @@ import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import TelegramError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from yt_dlp.utils import DownloadError
 
-from config import ALLOWED_USER_ID, DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, TELEGRAM_BOT_TOKEN
-from downloader import download_tiktok, download_with_gallery_dl, download_with_tiktok_api_dl, cleanup_downloads
+from config import ALLOWED_USER_ID, DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, TELEGRAM_BOT_TOKEN, TIKTOK_URL_RE, YOUTUBE_URL_RE
+from downloader import download_tiktok, download_with_gallery_dl, download_with_tiktok_api_dl, download_youtube, cleanup_downloads
 
 
 load_dotenv()
@@ -21,16 +21,17 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 
-TIKTOK_URL_RE = re.compile(
-    r"^https?://(?:www\.)?(?:tiktok\.com/@[^/\s]+/video/\d+|(?:vm|vt)\.tiktok\.com/[A-Za-z0-9]+/?)(?:\?.*)?$",
-    re.IGNORECASE,
-)
 DOWNLOAD_LIMIT = asyncio.Semaphore(2)
 
 
 def is_tiktok_url(text: str) -> bool:
     """Return True only for supported public TikTok URL shapes."""
     return bool(TIKTOK_URL_RE.fullmatch(text.strip()))
+
+
+def is_youtube_url(text: str) -> bool:
+    """Return True only for supported YouTube URL shapes."""
+    return bool(YOUTUBE_URL_RE.fullmatch(text.strip()))
 
 
 def is_allowed(update: Update) -> bool:
@@ -51,14 +52,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await deny(update)
         return
     await update.effective_message.reply_text(
-        "👋 <b>Selamat datang di TikTok Downloader</b>\n\n"
-        "Kirim link video TikTok publik dan bot akan membantu mengunduhnya.\n\n"
+        "👋 <b>Selamat datang di Video Downloader</b>\n\n"
+        "Kirim link video TikTok atau YouTube publik dan bot akan membantu mengunduhnya.\n\n"
         "<b>Cara menggunakan:</b>\n"
-        "1. Kirim link TikTok\n"
+        "1. Kirim link TikTok atau YouTube\n"
         "2. Pilih kualitas video\n"
         "3. Tunggu proses selesai\n\n"
         "<b>Contoh:</b>\n"
-        "<code>https://vt.tiktok.com/...</code>\n\n"
+        "<code>https://vt.tiktok.com/...</code>\n"
+        "<code>https://youtu.be/...</code>\n\n"
         "Gunakan /help untuk bantuan.",
         parse_mode=ParseMode.HTML,
     )
@@ -70,15 +72,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await update.effective_message.reply_text(
         "❓ <b>Bantuan</b>\n\n"
-        "Kirim satu link video TikTok publik setiap kali, lalu pilih kualitas yang diinginkan.\n\n"
-        "<b>Didukung:</b>\n"
+        "Kirim satu link video TikTok atau YouTube publik setiap kali, lalu pilih kualitas yang diinginkan.\n\n"
+        "<b>TikTok — Didukung:</b>\n"
         "• Link TikTok panjang\n"
         "• Link <code>vm.tiktok.com</code>\n"
         "• Link <code>vt.tiktok.com</code>\n\n"
-        "<b>Tidak didukung:</b>\n"
+        "<b>TikTok — Tidak didukung:</b>\n"
         "• Video private\n"
         "• Video yang membutuhkan login\n"
-        "• DRM atau access control",
+        "• DRM atau access control\n\n"
+        "<b>YouTube — Didukung:</b>\n"
+        "• Link YouTube panjang\n"
+        "• Link <code>youtu.be</code>\n"
+        "• Video publik tanpa DRM\n\n"
+        "<b>YouTube — Tidak didukung:</b>\n"
+        "• Video private\n"
+        "• Live stream\n"
+        "• Video dengan DRM/age-gate",
         parse_mode=ParseMode.HTML,
     )
 
@@ -90,17 +100,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     message = update.effective_message
     text = (message.text or "").strip()
-    if not is_tiktok_url(text):
+    
+    is_tiktok = is_tiktok_url(text)
+    is_youtube = is_youtube_url(text)
+    
+    if not is_tiktok and not is_youtube:
         await message.reply_text(
-            "❌ <b>URL TikTok tidak valid</b>\n\n"
-            "Silakan kirim link video TikTok yang dapat diakses secara publik.",
+            "❌ <b>URL tidak valid</b>\n\n"
+            "Silakan kirim link TikTok atau YouTube yang dapat diakses secara publik.",
             parse_mode=ParseMode.HTML,
         )
         return
 
+    platform = "TikTok" if is_tiktok else "YouTube"
     context.user_data["pending_url"] = text
+    context.user_data["platform"] = platform
     await message.reply_text(
-        "🎬 <b>Video TikTok diterima</b>\n\n"
+        f"🎬 <b>Video {platform} diterima</b>\n\n"
         "Pilih kualitas download:\n"
         "• Biasa: ukuran lebih kecil\n"
         "• HD: kualitas lebih tinggi, ukuran lebih besar",
@@ -126,10 +142,11 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not message:
         return
     url = context.user_data.pop("pending_url", None)
+    platform = context.user_data.pop("platform", "TikTok")
     quality = query.data.split(":", 1)[1] if query.data else "normal"
     if not url or quality not in {"normal", "hd"}:
         await query.edit_message_text(
-            "❌ <b>Permintaan sudah tidak tersedia</b>\n\nKirim URL TikTok lagi.",
+            f"❌ <b>Permintaan sudah tidak tersedia</b>\n\nKirim URL {platform} lagi.",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -143,20 +160,27 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         async with DOWNLOAD_LIMIT:
-            logger.info("User %s requested download", user_id)
-            try:
-                file_path = await asyncio.to_thread(download_tiktok, url, quality)
-            except Exception:
-                logger.warning("yt-dlp could not access the public TikTok page for user %s", user_id)
+            logger.info("User %s requested %s download", user_id, platform)
+            if platform == "YouTube":
                 try:
-                    file_path = await asyncio.to_thread(download_with_gallery_dl, url)
-                except Exception as fallback_error:
-                    logger.error("gallery-dl fallback failed for user %s: %s", user_id, fallback_error)
+                    file_path = await asyncio.to_thread(download_youtube, url, quality)
+                except Exception as yt_error:
+                    logger.error("YouTube download failed for user %s: %s", user_id, yt_error)
+                    raise DownloadError("YouTube download failed") from yt_error
+            else:
+                try:
+                    file_path = await asyncio.to_thread(download_tiktok, url, quality)
+                except Exception:
+                    logger.warning("yt-dlp could not access the public TikTok page for user %s", user_id)
                     try:
-                        file_path = await asyncio.to_thread(download_with_tiktok_api_dl, url)
-                    except Exception as api_error:
-                        logger.error("tiktok-api-dl fallback failed for user %s: %s", user_id, api_error)
-                        raise DownloadError("TikTok page could not be accessed by available extractors") from api_error
+                        file_path = await asyncio.to_thread(download_with_gallery_dl, url)
+                    except Exception as fallback_error:
+                        logger.error("gallery-dl fallback failed for user %s: %s", user_id, fallback_error)
+                        try:
+                            file_path = await asyncio.to_thread(download_with_tiktok_api_dl, url)
+                        except Exception as api_error:
+                            logger.error("tiktok-api-dl fallback failed for user %s: %s", user_id, api_error)
+                            raise DownloadError("TikTok page could not be accessed by available extractors") from api_error
         if not file_path.exists():
             raise FileNotFoundError("Downloaded file was not found")
         if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
@@ -181,11 +205,11 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         logger.info("Upload completed for user %s", user_id)
     except DownloadError:
-        logger.exception("yt-dlp failed for user %s", user_id)
+        logger.exception("Download failed for user %s", user_id)
         try:
             await status.edit_text(
-                "❌ <b>Download gagal</b>\n\n"
-                "TikTok tidak dapat memproses video ini saat ini. Pastikan video publik dan coba lagi.",
+                f"❌ <b>Download gagal</b>\n\n"
+                f"{platform} tidak dapat memproses video ini saat ini. Pastikan video publik dan coba lagi.",
                 parse_mode=ParseMode.HTML,
             )
         except TelegramError:
@@ -204,11 +228,11 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.exception("Download or upload failed for user %s", user_id)
         try:
             await status.edit_text(
-                "❌ <b>Download gagal</b>\n\n"
-                "Pastikan:\n"
-                "• URL TikTok valid\n"
-                "• video dapat diakses secara publik\n"
-                "• video tidak sedang dihapus atau private",
+                f"❌ <b>Download gagal</b>\n\n"
+                f"Pastikan:\n"
+                f"• URL {platform} valid\n"
+                f"• video dapat diakses secara publik\n"
+                f"• video tidak sedang dihapus atau private",
                 parse_mode=ParseMode.HTML,
             )
         except TelegramError:
@@ -222,11 +246,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Unhandled Telegram error: %s", context.error, exc_info=context.error)
 
 
+async def post_init(application: Application) -> None:
+    commands = [
+        BotCommand("start", "Mulai & info fitur bot"),
+        BotCommand("help", "Panduan bantuan penggunaan"),
+    ]
+    await application.bot.set_my_commands(commands)
+    logger.info("Bot commands menu registered successfully")
+
+
 def main() -> None:
     cleanup_downloads(DOWNLOAD_DIR)
     application = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)
+        .post_init(post_init)
         .connect_timeout(30)
         .read_timeout(90)
         .write_timeout(600)

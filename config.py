@@ -1,4 +1,5 @@
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -19,3 +20,13 @@ if ALLOWED_USER_ID <= 0:
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
 MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
+
+TIKTOK_URL_RE = re.compile(
+    r"^https?://(?:www\.)?(?:tiktok\.com/@[^/\s]+/video/\d+|(?:vm|vt)\.tiktok\.com/[A-Za-z0-9]+/?)(?:\?.*)?$",
+    re.IGNORECASE,
+)
+
+YOUTUBE_URL_RE = re.compile(
+    r"^https?://(?:www\.)?(?:youtube\.com/watch\?(?:.*&)?v=[-\w]{11}.*|youtu\.be/[-\w]{11}(?:\?.*)?|youtube\.com/embed/[-\w]{11}(?:\?.*)?)$",
+    re.IGNORECASE,
+)

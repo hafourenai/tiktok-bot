@@ -1,25 +1,28 @@
-# Telegram TikTok Downloader Bot
+# Telegram Video Downloader Bot
 
-Bot Telegram pribadi untuk mengunduh video TikTok publik dan mengirimkannya kembali kepada satu Telegram user yang diizinkan.
+Bot Telegram pribadi untuk mengunduh video TikTok dan YouTube publik serta mengirimkannya kembali kepada satu Telegram user yang diizinkan.
 
 Bot meminta pilihan kualitas **Biasa** atau **HD**, menghapus file sementara setelah selesai, dan membatasi download bersamaan agar cocok untuk Termux.
 
 ## Fitur
 
 - `/start` dan `/help`
-- Validasi link `tiktok.com`, `vm.tiktok.com`, dan `vt.tiktok.com`
+- Validasi link TikTok: `tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com`
+- Validasi link YouTube: `youtube.com`, `youtu.be`
 - Pilihan kualitas Biasa atau HD
 - Batas maksimal dua download bersamaan
 - Batas ukuran file sebelum upload
 - Cleanup file sementara setelah proses dan saat startup
 - Allowlist satu Telegram user ID
-- Fallback downloader: `yt-dlp`, `gallery-dl`, lalu package Node.js `@tobyg74/tiktok-api-dl`
+- Fallback downloader TikTok: `yt-dlp`, `gallery-dl`, lalu package Node.js `@tobyg74/tiktok-api-dl`
+- YouTube downloader: `yt-dlp` dengan library `youtube-api-dl` opsional
 
 ## Batasan Dan Keamanan
 
-- Hanya gunakan untuk video TikTok yang dapat diakses publik.
+- Hanya gunakan untuk video TikTok dan YouTube yang dapat diakses publik.
 - Bot tidak menggunakan login, cookies, DRM, paywall, atau bypass access control.
 - Fallback `tiktok-api-dl` memakai layanan tidak resmi dan dapat berhenti bekerja tanpa pemberitahuan.
+- YouTube downloader menggunakan `yt-dlp` yang stabil dan actively maintained.
 - Jangan pernah commit `.env`, token Telegram, cookies, atau file hasil download.
 - Token yang pernah dibagikan harus segera direvoke melalui `@BotFather`.
 
@@ -158,11 +161,12 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
 
 1. Kirim `/start` dari akun yang ID-nya ada di `.env`.
 2. Kirim `/help`.
-3. Kirim link TikTok panjang atau short link dari aplikasi, misalnya `https://vt.tiktok.com/...`.
-4. Pilih `Biasa` atau `HD`.
-5. Tunggu bot mengirim video.
-6. Periksa folder `downloads/`; file temporary seharusnya terhapus.
-7. Kirim `/start` dari akun lain untuk memastikan akses ditolak.
+3. Kirim link TikTok panjang atau short link, misalnya `https://vt.tiktok.com/...`.
+4. Atau kirim link YouTube, misalnya `https://youtu.be/...`.
+5. Pilih `Biasa` atau `HD`.
+6. Tunggu bot mengirim video.
+7. Periksa folder `downloads/`; file temporary seharusnya terhapus.
+8. Kirim `/start` dari akun lain untuk memastikan akses ditolak.
 
 ## Update Dependency
 
@@ -240,11 +244,13 @@ Coba kualitas `Biasa`, gunakan jaringan yang stabil, atau turunkan `MAX_FILE_SIZ
 ## Struktur Project
 
 ```text
-tiktok-bot/
+bot_honey/
 ├── bot.py
 ├── config.py
 ├── downloader.py
 ├── tiktok_api_bridge.js
+├── youtube_api_dl.js
+├── youtube_api_bridge.js
 ├── requirements.txt
 ├── package.json
 ├── package-lock.json
@@ -253,6 +259,66 @@ tiktok-bot/
 ├── downloads/
 │   └── .gitkeep
 ├── tests/
-│   └── test_bot.py
+│   ├── test_bot.py
+│   └── test_youtube.py
 └── README.md
 ```
+
+## YouTube API Library (`youtube-api-dl`)
+
+### Penggunaan dalam Node.js
+
+```javascript
+const { Downloader } = require("./youtube_api_dl");
+
+const response = await Downloader("https://youtu.be/dQw4w9WgXcQ", { version: "v1" });
+
+if (response.status === "success") {
+  console.log(response.result.video.url);
+  console.log(response.result.meta.title);
+  console.log(response.result.formats);
+}
+```
+
+### CLI Bridge
+
+```bash
+node youtube_api_bridge.js <url> [version]
+```
+
+Contoh:
+```bash
+node youtube_api_bridge.js "https://youtu.be/dQw4w9WgXcQ" "v1"
+```
+
+Output JSON:
+```json
+{
+  "status": "success",
+  "version": "v1",
+  "result": {
+    "meta": {
+      "id": "dQw4w9WgXcQ",
+      "title": "Rick Astley - Never Gonna Give You Up",
+      "duration": 233,
+      "thumbnail": "https://...",
+      "channel": "Rick Astley"
+    },
+    "video": {
+      "url": "https://...direct_video_url...",
+      "quality": "720p",
+      "format": "mp4",
+      "sizeBytes": 12345678
+    },
+    "formats": [...]
+  }
+}
+```
+
+### Format Selection Strategy
+
+- **v1** (Default): Format mp4 gabungan terbaik dengan height ≤ 720p — paling cocok Telegram
+- **v2**: Format video terbaik tanpa batas height — untuk kualitas maksimal
+- **v3**: Format 360p kecil — untuk file minimal
+
+Jika satu versi gagal, bridge otomatis coba versi berikutnya.

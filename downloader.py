@@ -101,3 +101,35 @@ def download_with_tiktok_api_dl(url: str) -> Path:
         target.unlink(missing_ok=True)
         raise FileNotFoundError("tiktok-api-dl did not produce a video file")
     return target
+
+
+def download_youtube(url: str, quality: str = "normal") -> Path:
+    """Download one YouTube video and return its temporary local path."""
+    from config import DOWNLOAD_DIR
+
+    download_dir = Path(DOWNLOAD_DIR)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    if quality == "hd":
+        video_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+    else:
+        video_format = "best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best"
+
+    options = {
+        "format": video_format,
+        "outtmpl": str(download_dir / f"%(id)s-{quality}.%(ext)s"),
+        "noplaylist": True,
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "no_warnings": True,
+    }
+    logger.info("YouTube download started")
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = Path(ydl.prepare_filename(info))
+    result = filename.with_suffix(".mp4")
+    if not result.exists():
+        result = filename
+    if not result.exists():
+        raise FileNotFoundError("yt-dlp did not produce a video file")
+    logger.info("YouTube download completed")
+    return result
