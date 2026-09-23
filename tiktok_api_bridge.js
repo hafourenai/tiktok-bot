@@ -1,3 +1,4 @@
+const https = require("https");
 const tiktok = require("@tobyg74/tiktok-api-dl");
 
 const args = process.argv.slice(2);
@@ -40,12 +41,93 @@ async function handleDownload(url) {
   process.exit(1);
 }
 
+function fetchMetaProfile(username) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      `https://www.tiktok.com/@${username}`,
+      {
+        headers: {
+          "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+          Accept: "text/html",
+        },
+      },
+      (res) => {
+        let html = "";
+        res.on("data", (c) => (html += c));
+        res.on("end", () => {
+          try {
+            const getMeta = (prop) => {
+              const regex = new RegExp('<meta\\s+(?:property|name)=["\']' + prop + '["\']\\s+content=["\'](.*?)["\']', "i");
+              const m = html.match(regex);
+              return m ? m[1] : "";
+            };
+            const title = getMeta("og:title") || getMeta("twitter:title") || "";
+            const desc = getMeta("og:description") || getMeta("twitter:description") || "";
+            const image = getMeta("og:image") || getMeta("twitter:image") || getMeta("lark:url:video_cover_image_url") || "";
+
+            if (!title && !desc) {
+              return resolve(null);
+            }
+
+            const nickname = title.replace(/\s+on TikTok$/i, "").trim() || username;
+            const matchStats = desc.match(
+              /([\d\.,]+[KkMmBb]?)\s+Followers,\s+([\d\.,]+[KkMmBb]?)\s+Following,\s+([\d\.,]+[KkMmBb]?)\s+Likes(?:\s*-\s*(.*))?/i
+            );
+            let followers = "0";
+            let following = "0";
+            let likes = "0";
+            let signature = "";
+            if (matchStats) {
+              followers = matchStats[1];
+              following = matchStats[2];
+              likes = matchStats[3];
+              signature = matchStats[4] || "";
+            }
+
+            resolve({
+              status: "success",
+              result: {
+                user: {
+                  username: username,
+                  nickname: nickname,
+                  avatarLarger: image.replace(/&amp;/g, "&"),
+                  signature: signature,
+                  verified: html.includes("verified"),
+                },
+                stats: {
+                  followerCount: followers,
+                  followingCount: following,
+                  heartCount: likes,
+                  videoCount: "-",
+                },
+              },
+            });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+  });
+}
+
 async function handleStalk(username) {
   const user = cleanUsername(username);
   if (!user) {
     process.stderr.write("Username is required for stalk\n");
     process.exit(2);
   }
+  try {
+    const metaRes = await fetchMetaProfile(user);
+    if (metaRes && metaRes.status === "success") {
+      process.stdout.write(JSON.stringify(metaRes));
+      return;
+    }
+  } catch (_) {
+    // Fallback to library
+  }
+
   try {
     const res = await tiktok.StalkUser(user);
     if (res?.status === "success" && res?.result?.user) {
@@ -68,15 +150,17 @@ async function handlePosts(username, limitStr) {
     process.exit(2);
   }
   try {
-    const res = await tiktok.GetUserPosts(user, { postLimit: limit });
-    if (res?.status === "success" && Array.isArray(res?.result)) {
-      process.stdout.write(JSON.stringify(res));
-    } else {
-      process.stderr.write(res?.message || "Failed to fetch user posts\n");
-      process.exit(1);
+    if (typeof tiktok.GetUserPosts === "function") {
+      const res = await tiktok.GetUserPosts(user, { postLimit: limit });
+      if (res?.status === "success" && Array.isArray(res?.result)) {
+        process.stdout.write(JSON.stringify(res));
+        return;
+      }
     }
+    process.stderr.write("Fitur postingan sedang dibatasi oleh sistem anti-bot TikTok\n");
+    process.exit(1);
   } catch (err) {
-    process.stderr.write(err?.message || "Failed to fetch user posts\n");
+    process.stderr.write(err?.message || "Gagal mengambil postingan TikTok\n");
     process.exit(1);
   }
 }
@@ -89,17 +173,16 @@ async function handleReposts(username, limitStr) {
     process.exit(2);
   }
   try {
-    const res = await tiktok.GetUserReposts(user, { postLimit: limit });
-    if (res?.status === "success" && Array.isArray(res?.result)) {
-      process.stdout.write(JSON.stringify(res));
-    } else {
-      process.stderr.write(res?.message || "Failed to fetch user reposts\n");
-      process.exit(1);
+    if (typeof tiktok.GetUserReposts === "function") {
+      const res = await tiktok.GetUserReposts(user, { postLimit: limit });
+      if (res?.status === "success" && Array.isArray(res?.result)) {
+        process.stdout.write(JSON.stringify(res));
+        return;
+      }
     }
-  } catch (err) {
-    process.stderr.write(err?.message || "Failed to fetch user reposts\n");
-    process.exit(1);
-  }
+  } catch (_) {}
+  process.stderr.write("Fitur repostan TikTok saat ini sedang tidak tersedia karena pemblokiran WAF/anti-bot dari pihak TikTok.\n");
+  process.exit(1);
 }
 
 (async () => {

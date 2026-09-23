@@ -129,10 +129,18 @@ async def stalk_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         signature = user.get("signature") or "<i>(Tidak ada bio)</i>"
         avatar_url = user.get("avatarLarger") or user.get("avatarMedium") or user.get("avatarThumb")
 
-        followers = f"{stats.get('followerCount', 0):,}"
-        following = f"{stats.get('followingCount', 0):,}"
-        total_likes = f"{stats.get('heartCount', 0):,}"
-        video_count = f"{stats.get('videoCount', 0):,}"
+        followers = stats.get('followerCount', '0')
+        if isinstance(followers, int):
+            followers = f"{followers:,}"
+        following = stats.get('followingCount', '0')
+        if isinstance(following, int):
+            following = f"{following:,}"
+        total_likes = stats.get('heartCount', '0')
+        if isinstance(total_likes, int):
+            total_likes = f"{total_likes:,}"
+        video_count = stats.get('videoCount', '-')
+        if isinstance(video_count, int):
+            video_count = f"{video_count:,}"
 
         caption = (
             f"👤 <b>Profil TikTok: {nickname}</b> (@{user.get('username', username)}){is_verified}\n\n"
