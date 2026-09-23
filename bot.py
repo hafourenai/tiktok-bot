@@ -232,56 +232,15 @@ async def reposts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await deny(update)
         return
 
-    if not context.args:
-        await update.effective_message.reply_text(
-            "⚠️ <b>Format salah</b>\n\n"
-            "Gunakan format: <code>/reposts [username]</code>\n"
-            "Contoh: <code>/reposts tiktok</code>",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    username = context.args[0].strip().lstrip("@")
-    status = await update.effective_message.reply_text(
-        f"⏳ <b>Mengambil video repostan @{username}...</b>",
+    await update.effective_message.reply_text(
+        "ℹ️ <b>Fitur Tidak Tersedia</b>\n\n"
+        "Maaf, fitur pengambilan repostan TikTok sedang tidak tersedia karena pemblokiran WAF/anti-bot dari pihak TikTok.\n\n"
+        "Kami terus bekerja untuk menemukan solusi alternatif. Silakan coba fitur lainnya:\n"
+        "• <code>/stalk [username]</code> - Lihat profil TikTok\n"
+        "• <code>/posts [username]</code> - Lihat postingan terbaru\n"
+        "• Kirim link TikTok atau YouTube untuk download video",
         parse_mode=ParseMode.HTML,
     )
-
-    try:
-        reposts = await asyncio.to_thread(get_tiktok_user_reposts, username, 5)
-        if not reposts:
-            await status.edit_text(
-                f"ℹ️ Akun @{username} belum memiliki repostan atau akun bersifat privat.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-
-        text_lines = [f"🔄 <b>Video Repostan @{username}:</b>\n"]
-        for idx, rep in enumerate(reposts, 1):
-            desc = rep.get("desc") or "(Tanpa deskripsi)"
-            if len(desc) > 80:
-                desc = desc[:77] + "..."
-            author = rep.get("author", {}).get("username") or "creator"
-            post_id = rep.get("id")
-            stats = rep.get("stats", {})
-            likes = f"{stats.get('likeCount', 0):,}"
-            shares = f"{stats.get('shareCount', 0):,}"
-
-            url = f"https://www.tiktok.com/@{author}/video/{post_id}" if post_id else "#"
-            text_lines.append(
-                f"<b>{idx}.</b> <a href=\"{url}\">{desc}</a> (by @{author})\n"
-                f"   ❤️ {likes} likes | 🔁 {shares} shares"
-            )
-
-        text_lines.append("\n💡 <i>Klik link video di atas untuk melihat atau copy link untuk download video.</i>")
-        await status.edit_text("\n".join(text_lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    except Exception as err:
-        logger.error("Get reposts failed for user %s: %s", username, err)
-        safe_err = html.escape(str(err))
-        await status.edit_text(
-            f"❌ <b>Gagal mengambil repostan:</b>\n<code>{safe_err}</code>",
-            parse_mode=ParseMode.HTML,
-        )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
