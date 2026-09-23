@@ -12,7 +12,16 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from yt_dlp.utils import DownloadError
 
 from config import ALLOWED_USER_ID, DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, TELEGRAM_BOT_TOKEN, TIKTOK_URL_RE, YOUTUBE_URL_RE
-from downloader import download_tiktok, download_with_gallery_dl, download_with_tiktok_api_dl, download_youtube, cleanup_downloads
+from downloader import (
+    cleanup_downloads,
+    download_tiktok,
+    download_with_gallery_dl,
+    download_with_tiktok_api_dl,
+    download_youtube,
+    get_tiktok_user_posts,
+    get_tiktok_user_reposts,
+    stalk_tiktok_user,
+)
 
 
 load_dotenv()
@@ -71,26 +80,196 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await deny(update)
         return
     await update.effective_message.reply_text(
-        "❓ <b>Bantuan</b>\n\n"
-        "Kirim satu link video TikTok atau YouTube publik setiap kali, lalu pilih kualitas yang diinginkan.\n\n"
-        "<b>TikTok — Didukung:</b>\n"
-        "• Link TikTok panjang\n"
-        "• Link <code>vm.tiktok.com</code>\n"
-        "• Link <code>vt.tiktok.com</code>\n\n"
-        "<b>TikTok — Tidak didukung:</b>\n"
-        "• Video private\n"
-        "• Video yang membutuhkan login\n"
-        "• DRM atau access control\n\n"
-        "<b>YouTube — Didukung:</b>\n"
-        "• Link YouTube panjang\n"
-        "• Link <code>youtu.be</code>\n"
-        "• Video publik tanpa DRM\n\n"
-        "<b>YouTube — Tidak didukung:</b>\n"
-        "• Video private\n"
-        "• Live stream\n"
-        "• Video dengan DRM/age-gate",
+        "❓ <b>Panduan Penggunaan Bot</b>\n\n"
+        "<b>1. Download Video:</b>\n"
+        "Kirim link TikTok atau YouTube publik langsung ke chat ini.\n\n"
+        "<b>2. Fitur Stalk & Profil TikTok:</b>\n"
+        "• <code>/stalk [username]</code>\n"
+        "  <i>Contoh: <code>/stalk tiktok</code></i>\n"
+        "  Melihat foto profil, followers, following, total like & status akun.\n\n"
+        "• <code>/posts [username]</code>\n"
+        "  <i>Contoh: <code>/posts tiktok</code></i>\n"
+        "  Melihat 5 postingan video terbaru beserta statistiknya.\n\n"
+        "• <code>/reposts [username]</code>\n"
+        "  <i>Contoh: <code>/reposts tiktok</code></i>\n"
+        "  Melihat 5 video yang di-repost oleh akun tersebut.",
         parse_mode=ParseMode.HTML,
     )
+
+
+async def stalk_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_allowed(update):
+        await deny(update)
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "⚠️ <b>Format salah</b>\n\n"
+            "Gunakan format: <code>/stalk [username]</code>\n"
+            "Contoh: <code>/stalk tiktok</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    username = context.args[0].strip().lstrip("@")
+    status = await update.effective_message.reply_text(
+        f"🔍 <b>Mencari profil @{username}...</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        profile_data = await asyncio.to_thread(stalk_tiktok_user, username)
+        user = profile_data.get("user", {})
+        stats = profile_data.get("stats", {})
+
+        nickname = user.get("nickname") or username
+        is_verified = " ✅" if user.get("verified") else ""
+        is_private = "🔒 Akun Privat" if user.get("privateAccount") else "🌐 Akun Publik"
+        signature = user.get("signature") or "<i>(Tidak ada bio)</i>"
+        avatar_url = user.get("avatarLarger") or user.get("avatarMedium") or user.get("avatarThumb")
+
+        followers = f"{stats.get('followerCount', 0):,}"
+        following = f"{stats.get('followingCount', 0):,}"
+        total_likes = f"{stats.get('heartCount', 0):,}"
+        video_count = f"{stats.get('videoCount', 0):,}"
+
+        caption = (
+            f"👤 <b>Profil TikTok: {nickname}</b> (@{user.get('username', username)}){is_verified}\n\n"
+            f"👥 <b>Followers:</b> {followers}\n"
+            f"🚶‍♂️ <b>Following:</b> {following}\n"
+            f"❤️ <b>Total Suka:</b> {total_likes}\n"
+            f"🎬 <b>Total Video:</b> {video_count}\n"
+            f"🛡️ <b>Status:</b> {is_private}\n\n"
+            f"📝 <b>Bio:</b>\n{signature}"
+        )
+
+        if avatar_url:
+            await update.effective_message.reply_photo(
+                photo=avatar_url,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+            )
+            await status.delete()
+        else:
+            await status.edit_text(caption, parse_mode=ParseMode.HTML)
+    except Exception as err:
+        logger.error("Stalk failed for user %s: %s", username, err)
+        await status.edit_text(
+            f"❌ <b>Gagal memeriksa profil:</b>\n{err}",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def posts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_allowed(update):
+        await deny(update)
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "⚠️ <b>Format salah</b>\n\n"
+            "Gunakan format: <code>/posts [username]</code>\n"
+            "Contoh: <code>/posts tiktok</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    username = context.args[0].strip().lstrip("@")
+    status = await update.effective_message.reply_text(
+        f"⏳ <b>Mengambil postingan terbaru @{username}...</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        posts = await asyncio.to_thread(get_tiktok_user_posts, username, 5)
+        if not posts:
+            await status.edit_text(
+                f"ℹ️ Akun @{username} belum memiliki postingan atau akun bersifat privat.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        text_lines = [f"🎬 <b>Postingan Terbaru @{username}:</b>\n"]
+        for idx, post in enumerate(posts, 1):
+            desc = post.get("desc") or "(Tanpa deskripsi)"
+            if len(desc) > 80:
+                desc = desc[:77] + "..."
+            post_id = post.get("id")
+            stats = post.get("stats", {})
+            likes = f"{stats.get('likeCount', 0):,}"
+            plays = f"{stats.get('playCount', 0):,}"
+            comments = f"{stats.get('commentCount', 0):,}"
+
+            url = f"https://www.tiktok.com/@{username}/video/{post_id}" if post_id else "#"
+            text_lines.append(
+                f"<b>{idx}.</b> <a href=\"{url}\">{desc}</a>\n"
+                f"   👁️ {plays} views | ❤️ {likes} likes | 💬 {comments} comments"
+            )
+
+        text_lines.append("\n💡 <i>Klik link video di atas untuk melihat atau copy link untuk download video.</i>")
+        await status.edit_text("\n".join(text_lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception as err:
+        logger.error("Get posts failed for user %s: %s", username, err)
+        await status.edit_text(
+            f"❌ <b>Gagal mengambil postingan:</b>\n{err}",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def reposts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_allowed(update):
+        await deny(update)
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "⚠️ <b>Format salah</b>\n\n"
+            "Gunakan format: <code>/reposts [username]</code>\n"
+            "Contoh: <code>/reposts tiktok</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    username = context.args[0].strip().lstrip("@")
+    status = await update.effective_message.reply_text(
+        f"⏳ <b>Mengambil video repostan @{username}...</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        reposts = await asyncio.to_thread(get_tiktok_user_reposts, username, 5)
+        if not reposts:
+            await status.edit_text(
+                f"ℹ️ Akun @{username} belum memiliki repostan atau akun bersifat privat.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        text_lines = [f"🔄 <b>Video Repostan @{username}:</b>\n"]
+        for idx, rep in enumerate(reposts, 1):
+            desc = rep.get("desc") or "(Tanpa deskripsi)"
+            if len(desc) > 80:
+                desc = desc[:77] + "..."
+            author = rep.get("author", {}).get("username") or "creator"
+            post_id = rep.get("id")
+            stats = rep.get("stats", {})
+            likes = f"{stats.get('likeCount', 0):,}"
+            shares = f"{stats.get('shareCount', 0):,}"
+
+            url = f"https://www.tiktok.com/@{author}/video/{post_id}" if post_id else "#"
+            text_lines.append(
+                f"<b>{idx}.</b> <a href=\"{url}\">{desc}</a> (by @{author})\n"
+                f"   ❤️ {likes} likes | 🔁 {shares} shares"
+            )
+
+        text_lines.append("\n💡 <i>Klik link video di atas untuk melihat atau copy link untuk download video.</i>")
+        await status.edit_text("\n".join(text_lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception as err:
+        logger.error("Get reposts failed for user %s: %s", username, err)
+        await status.edit_text(
+            f"❌ <b>Gagal mengambil repostan:</b>\n{err}",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -250,6 +429,9 @@ async def post_init(application: Application) -> None:
     commands = [
         BotCommand("start", "Mulai & info fitur bot"),
         BotCommand("help", "Panduan bantuan penggunaan"),
+        BotCommand("stalk", "Cek profil & followers TikTok user"),
+        BotCommand("posts", "Lihat postingan terbaru TikTok user"),
+        BotCommand("reposts", "Lihat video repostan TikTok user"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands menu registered successfully")
@@ -269,6 +451,9 @@ def main() -> None:
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("stalk", stalk_command))
+    application.add_handler(CommandHandler("posts", posts_command))
+    application.add_handler(CommandHandler("reposts", reposts_command))
     application.add_handler(CallbackQueryHandler(handle_quality, pattern=r"^quality:(normal|hd)$"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)

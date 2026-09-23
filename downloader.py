@@ -103,6 +103,72 @@ def download_with_tiktok_api_dl(url: str) -> Path:
     return target
 
 
+def stalk_tiktok_user(username: str) -> dict:
+    """Fetch TikTok user profile information using the Node.js bridge."""
+    bridge = Path(__file__).with_name("tiktok_api_bridge.js")
+    result = subprocess.run(
+        ["node", str(bridge), "stalk", username],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Gagal mengambil data profil TikTok")
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError("Respon profil TikTok tidak valid") from err
+
+    if data.get("status") != "success" or "result" not in data:
+        raise RuntimeError(data.get("message") or "Pengguna TikTok tidak ditemukan")
+    return data["result"]
+
+
+def get_tiktok_user_posts(username: str, limit: int = 5) -> list[dict]:
+    """Fetch recent posts from a TikTok user using the Node.js bridge."""
+    bridge = Path(__file__).with_name("tiktok_api_bridge.js")
+    result = subprocess.run(
+        ["node", str(bridge), "posts", username, str(limit)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Gagal mengambil postingan TikTok")
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError("Respon postingan TikTok tidak valid") from err
+
+    if data.get("status") != "success" or not isinstance(data.get("result"), list):
+        raise RuntimeError(data.get("message") or "Postingan TikTok tidak ditemukan")
+    return data["result"]
+
+
+def get_tiktok_user_reposts(username: str, limit: int = 5) -> list[dict]:
+    """Fetch recent reposts from a TikTok user using the Node.js bridge."""
+    bridge = Path(__file__).with_name("tiktok_api_bridge.js")
+    result = subprocess.run(
+        ["node", str(bridge), "reposts", username, str(limit)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Gagal mengambil repostan TikTok")
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError("Respon repostan TikTok tidak valid") from err
+
+    if data.get("status") != "success" or not isinstance(data.get("result"), list):
+        raise RuntimeError(data.get("message") or "Repostan TikTok tidak ditemukan")
+    return data["result"]
+
+
 def download_youtube(url: str, quality: str = "normal") -> Path:
     """Download one YouTube video and return its temporary local path."""
     from config import DOWNLOAD_DIR
