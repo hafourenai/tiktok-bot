@@ -157,31 +157,37 @@ async function handlePosts(username, limitStr) {
         return;
       }
     }
-    process.stderr.write("Fitur postingan sedang dibatasi oleh sistem anti-bot TikTok\n");
-    process.exit(1);
-  } catch (err) {
-    process.stderr.write(err?.message || "Gagal mengambil postingan TikTok\n");
-    process.exit(1);
+  } catch (_) {
+    // Fallback to metadata scraper
   }
+
+  try {
+    const metaRes = await fetchMetaProfile(user);
+    if (metaRes && metaRes.status === "success") {
+      process.stdout.write(JSON.stringify({
+        status: "success",
+        result: [{
+          id: "1",
+          desc: metaRes.result.user.signature,
+          stats: { playCount: 0, likeCount: 0, commentCount: 0 }
+        }],
+        message: "Data terbatas dari metadata profil"
+      }));
+      return;
+    }
+  } catch (_) {}
+
+  process.stderr.write("Fitur postingan sedang dibatasi oleh sistem anti-bot TikTok\n");
+  process.exit(1);
 }
 
 async function handleReposts(username, limitStr) {
   const user = cleanUsername(username);
-  const limit = parseInt(limitStr, 10) || 5;
   if (!user) {
     process.stderr.write("Username is required for reposts\n");
     process.exit(2);
   }
-  try {
-    if (typeof tiktok.GetUserReposts === "function") {
-      const res = await tiktok.GetUserReposts(user, { postLimit: limit });
-      if (res?.status === "success" && Array.isArray(res?.result)) {
-        process.stdout.write(JSON.stringify(res));
-        return;
-      }
-    }
-  } catch (_) {}
-  process.stderr.write("Fitur repostan TikTok saat ini sedang tidak tersedia karena pemblokiran WAF/anti-bot dari pihak TikTok.\n");
+  process.stderr.write("Fitur repostan TikTok tidak tersedia\n");
   process.exit(1);
 }
 

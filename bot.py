@@ -233,9 +233,9 @@ async def reposts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     await update.effective_message.reply_text(
-        "ℹ️ <b>Fitur Tidak Tersedia</b>\n\n"
-        "Maaf, fitur pengambilan repostan TikTok sedang tidak tersedia karena pemblokiran WAF/anti-bot dari pihak TikTok.\n\n"
-        "Kami terus bekerja untuk menemukan solusi alternatif. Silakan coba fitur lainnya:\n"
+        "ℹ️ <b>Fitur Repostan Tidak Tersedia</b>\n\n"
+        "Maaf, fitur repostan TikTok saat ini tidak dapat diakses karena pembatasan dari pihak TikTok.\n\n"
+        "Gunakan fitur lain yang tersedia:\n"
         "• <code>/stalk [username]</code> - Lihat profil TikTok\n"
         "• <code>/posts [username]</code> - Lihat postingan terbaru\n"
         "• Kirim link TikTok atau YouTube untuk download video",
