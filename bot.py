@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 import re
@@ -154,8 +155,9 @@ async def stalk_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await status.edit_text(caption, parse_mode=ParseMode.HTML)
     except Exception as err:
         logger.error("Stalk failed for user %s: %s", username, err)
+        safe_err = html.escape(str(err))
         await status.edit_text(
-            f"❌ <b>Gagal memeriksa profil:</b>\n{err}",
+            f"❌ <b>Gagal memeriksa profil:</b>\n<code>{safe_err}</code>",
             parse_mode=ParseMode.HTML,
         )
 
@@ -210,8 +212,9 @@ async def posts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await status.edit_text("\n".join(text_lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception as err:
         logger.error("Get posts failed for user %s: %s", username, err)
+        safe_err = html.escape(str(err))
         await status.edit_text(
-            f"❌ <b>Gagal mengambil postingan:</b>\n{err}",
+            f"❌ <b>Gagal mengambil postingan:</b>\n<code>{safe_err}</code>",
             parse_mode=ParseMode.HTML,
         )
 
@@ -266,8 +269,9 @@ async def reposts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await status.edit_text("\n".join(text_lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception as err:
         logger.error("Get reposts failed for user %s: %s", username, err)
+        safe_err = html.escape(str(err))
         await status.edit_text(
-            f"❌ <b>Gagal mengambil repostan:</b>\n{err}",
+            f"❌ <b>Gagal mengambil repostan:</b>\n<code>{safe_err}</code>",
             parse_mode=ParseMode.HTML,
         )
 
