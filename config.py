@@ -21,6 +21,8 @@ if ALLOWED_USER_ID <= 0:
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
 MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
 
+TIKTOK_FALLBACK_URL = os.getenv("TIKTOK_FALLBACK_URL", "https://snaptikhon.vercel.app/").strip()
+
 TIKTOK_URL_RE = re.compile(
     r"^https?://(?:www\.)?(?:tiktok\.com/@[^/\s]+/video/\d+|(?:vm|vt)\.tiktok\.com/[A-Za-z0-9]+/?)(?:\?.*)?$",
     re.IGNORECASE,

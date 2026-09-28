@@ -7,7 +7,7 @@ if (args.length === 0) {
   process.exit(2);
 }
 
-const isExplicitAction = ["download", "stalk", "posts", "reposts"].includes(args[0]);
+const isExplicitAction = ["download", "stalk"].includes(args[0]);
 const action = isExplicitAction ? args[0] : "download";
 const param1 = isExplicitAction ? args[1] : args[0];
 const param2 = isExplicitAction ? args[2] : args[1];
@@ -142,64 +142,11 @@ async function handleStalk(username) {
   }
 }
 
-async function handlePosts(username, limitStr) {
-  const user = cleanUsername(username);
-  const limit = parseInt(limitStr, 10) || 5;
-  if (!user) {
-    process.stderr.write("Username is required for posts\n");
-    process.exit(2);
-  }
-  try {
-    if (typeof tiktok.GetUserPosts === "function") {
-      const res = await tiktok.GetUserPosts(user, { postLimit: limit });
-      if (res?.status === "success" && Array.isArray(res?.result)) {
-        process.stdout.write(JSON.stringify(res));
-        return;
-      }
-    }
-  } catch (_) {
-    // Fallback to metadata scraper
-  }
-
-  try {
-    const metaRes = await fetchMetaProfile(user);
-    if (metaRes && metaRes.status === "success") {
-      process.stdout.write(JSON.stringify({
-        status: "success",
-        result: [{
-          id: "1",
-          desc: metaRes.result.user.signature,
-          stats: { playCount: 0, likeCount: 0, commentCount: 0 }
-        }],
-        message: "Data terbatas dari metadata profil"
-      }));
-      return;
-    }
-  } catch (_) {}
-
-  process.stderr.write("Fitur postingan sedang dibatasi oleh sistem anti-bot TikTok\n");
-  process.exit(1);
-}
-
-async function handleReposts(username, limitStr) {
-  const user = cleanUsername(username);
-  if (!user) {
-    process.stderr.write("Username is required for reposts\n");
-    process.exit(2);
-  }
-  process.stderr.write("Fitur repostan TikTok tidak tersedia\n");
-  process.exit(1);
-}
-
 (async () => {
   if (action === "download") {
     await handleDownload(param1);
   } else if (action === "stalk") {
     await handleStalk(param1);
-  } else if (action === "posts") {
-    await handlePosts(param1, param2);
-  } else if (action === "reposts") {
-    await handleReposts(param1, param2);
   } else {
     process.stderr.write(`Unknown action: ${action}\n`);
     process.exit(2);

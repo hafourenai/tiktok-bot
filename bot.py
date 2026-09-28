@@ -12,15 +12,21 @@ from telegram.error import TelegramError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from yt_dlp.utils import DownloadError
 
-from config import ALLOWED_USER_ID, DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, TELEGRAM_BOT_TOKEN, TIKTOK_URL_RE, YOUTUBE_URL_RE
+from config import (
+    ALLOWED_USER_ID,
+    DOWNLOAD_DIR,
+    MAX_FILE_SIZE_BYTES,
+    TELEGRAM_BOT_TOKEN,
+    TIKTOK_FALLBACK_URL,
+    TIKTOK_URL_RE,
+    YOUTUBE_URL_RE,
+)
 from downloader import (
     cleanup_downloads,
     download_tiktok,
     download_with_gallery_dl,
     download_with_tiktok_api_dl,
     download_youtube,
-    get_tiktok_user_posts,
-    get_tiktok_user_reposts,
     stalk_tiktok_user,
 )
 
@@ -87,13 +93,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "<b>2. Fitur Stalk & Profil TikTok:</b>\n"
         "• <code>/stalk [username]</code>\n"
         "  <i>Contoh: <code>/stalk tiktok</code></i>\n"
-        "  Melihat foto profil, followers, following, total like & status akun.\n\n"
-        "• <code>/posts [username]</code>\n"
-        "  <i>Contoh: <code>/posts tiktok</code></i>\n"
-        "  Melihat 5 postingan video terbaru beserta statistiknya.\n\n"
-        "• <code>/reposts [username]</code>\n"
-        "  <i>Contoh: <code>/reposts tiktok</code></i>\n"
-        "  Melihat 5 video yang di-repost oleh akun tersebut.",
+        "  Melihat foto profil, followers, following, total like & status akun.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -170,76 +170,23 @@ async def stalk_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
 
 
-async def posts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_allowed(update):
-        await deny(update)
-        return
-
-    if not context.args:
-        await update.effective_message.reply_text(
-            "⚠️ <b>Format salah</b>\n\n"
-            "Gunakan format: <code>/posts [username]</code>\n"
-            "Contoh: <code>/posts tiktok</code>",
-            parse_mode=ParseMode.HTML,
+def build_download_failure(platform: str) -> str:
+    """Return a user-facing failure notice, pointing TikTok users to the web fallback."""
+    if platform == "TikTok":
+        return (
+            "❌ <b>Download TikTok gagal</b>\n\n"
+            "<b>Kemungkinan penyebab:</b>\n"
+            "• Rate limit / anti-bot TikTok (WAF memblokir akses otomatis)\n"
+            "• Video privat, dihapus, atau dibatasi region\n"
+            "• CDN video tidak bisa diakses dari server ini\n\n"
+            "<b>Solusi:</b>\n"
+            f"Download manual via: <a href=\"{TIKTOK_FALLBACK_URL}\">{TIKTOK_FALLBACK_URL}</a>\n\n"
+            "<i>Coba lagi beberapa menit lagi, atau gunakan situs di atas.</i>"
         )
-        return
-
-    username = context.args[0].strip().lstrip("@")
-    status = await update.effective_message.reply_text(
-        f"⏳ <b>Mengambil postingan terbaru @{username}...</b>",
-        parse_mode=ParseMode.HTML,
-    )
-
-    try:
-        posts = await asyncio.to_thread(get_tiktok_user_posts, username, 5)
-        if not posts:
-            await status.edit_text(
-                f"ℹ️ Akun @{username} belum memiliki postingan atau akun bersifat privat.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-
-        text_lines = [f"🎬 <b>Postingan Terbaru @{username}:</b>\n"]
-        for idx, post in enumerate(posts, 1):
-            desc = post.get("desc") or "(Tanpa deskripsi)"
-            if len(desc) > 80:
-                desc = desc[:77] + "..."
-            post_id = post.get("id")
-            stats = post.get("stats", {})
-            likes = f"{stats.get('likeCount', 0):,}"
-            plays = f"{stats.get('playCount', 0):,}"
-            comments = f"{stats.get('commentCount', 0):,}"
-
-            url = f"https://www.tiktok.com/@{username}/video/{post_id}" if post_id else "#"
-            text_lines.append(
-                f"<b>{idx}.</b> <a href=\"{url}\">{desc}</a>\n"
-                f"   👁️ {plays} views | ❤️ {likes} likes | 💬 {comments} comments"
-            )
-
-        text_lines.append("\n💡 <i>Klik link video di atas untuk melihat atau copy link untuk download video.</i>")
-        await status.edit_text("\n".join(text_lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    except Exception as err:
-        logger.error("Get posts failed for user %s: %s", username, err)
-        safe_err = html.escape(str(err))
-        await status.edit_text(
-            f"❌ <b>Gagal mengambil postingan:</b>\n<code>{safe_err}</code>",
-            parse_mode=ParseMode.HTML,
-        )
-
-
-async def reposts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_allowed(update):
-        await deny(update)
-        return
-
-    await update.effective_message.reply_text(
-        "ℹ️ <b>Fitur Repostan Tidak Tersedia</b>\n\n"
-        "Maaf, fitur repostan TikTok saat ini tidak dapat diakses karena pembatasan dari pihak TikTok.\n\n"
-        "Gunakan fitur lain yang tersedia:\n"
-        "• <code>/stalk [username]</code> - Lihat profil TikTok\n"
-        "• <code>/posts [username]</code> - Lihat postingan terbaru\n"
-        "• Kirim link TikTok atau YouTube untuk download video",
-        parse_mode=ParseMode.HTML,
+    return (
+        "❌ <b>Download gagal</b>\n\n"
+        f"{platform} tidak dapat memproses video ini saat ini.\n"
+        "Pastikan video publik dan coba lagi."
     )
 
 
@@ -350,7 +297,7 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         with file_path.open("rb") as video:
             await message.reply_video(
                 video=video,
-                caption="🎉 <b>Video berhasil dikirim!</b>\n\nFile tadi udah dibersihin.",
+                caption="🎉 <b>Video berhasil dikirim!</b>",
                 parse_mode=ParseMode.HTML,
             )
         logger.info("Upload completed for user %s", user_id)
@@ -358,9 +305,9 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.exception("Download failed for user %s", user_id)
         try:
             await status.edit_text(
-                f"❌ <b>Download gagal</b>\n\n"
-                f"{platform} tidak dapat memproses video ini saat ini. Pastikan video publik dan coba lagi.",
+                build_download_failure(platform),
                 parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
             )
         except TelegramError:
             logger.exception("Could not update status message")
@@ -378,12 +325,9 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.exception("Download or upload failed for user %s", user_id)
         try:
             await status.edit_text(
-                f"❌ <b>Download gagal</b>\n\n"
-                f"Pastikan:\n"
-                f"• URL {platform} valid\n"
-                f"• video dapat diakses secara publik\n"
-                f"• video tidak sedang dihapus atau private",
+                build_download_failure(platform),
                 parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
             )
         except TelegramError:
             logger.exception("Could not update status message")
@@ -401,8 +345,6 @@ async def post_init(application: Application) -> None:
         BotCommand("start", "Mulai & info fitur bot"),
         BotCommand("help", "Panduan bantuan penggunaan"),
         BotCommand("stalk", "Cek profil & followers TikTok user"),
-        BotCommand("posts", "Lihat postingan terbaru TikTok user"),
-        BotCommand("reposts", "Lihat video repostan TikTok user"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands menu registered successfully")
@@ -423,8 +365,6 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stalk", stalk_command))
-    application.add_handler(CommandHandler("posts", posts_command))
-    application.add_handler(CommandHandler("reposts", reposts_command))
     application.add_handler(CallbackQueryHandler(handle_quality, pattern=r"^quality:(normal|hd)$"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
