@@ -1,12 +1,13 @@
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["ALLOWED_TELEGRAM_USER_ID"] = "123"
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from bot import is_tiktok_url, is_youtube_url
+from bot import is_allowed, is_tiktok_url, is_youtube_url
 
 
 def test_valid_tiktok_urls():
@@ -28,3 +29,22 @@ def test_invalid_urls():
     assert not is_tiktok_url("not a url")
     assert not is_youtube_url("https://example.com/video.mp4")
     assert not is_youtube_url("not a url")
+
+
+def test_access_is_limited_to_owner_private_chat():
+    owner_private = SimpleNamespace(
+        effective_user=SimpleNamespace(id=123),
+        effective_chat=SimpleNamespace(type="private"),
+    )
+    owner_group = SimpleNamespace(
+        effective_user=SimpleNamespace(id=123),
+        effective_chat=SimpleNamespace(type="group"),
+    )
+    other_private = SimpleNamespace(
+        effective_user=SimpleNamespace(id=456),
+        effective_chat=SimpleNamespace(type="private"),
+    )
+
+    assert is_allowed(owner_private)
+    assert not is_allowed(owner_group)
+    assert not is_allowed(other_private)

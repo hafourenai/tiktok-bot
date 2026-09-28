@@ -1,5 +1,7 @@
 import os
 import re
+from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -20,6 +22,21 @@ if ALLOWED_USER_ID <= 0:
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
 MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
+
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_GUILD_ID_RAW = os.getenv("DISCORD_GUILD_ID", "").strip()
+try:
+    DISCORD_GUILD_ID = int(DISCORD_GUILD_ID_RAW) if DISCORD_GUILD_ID_RAW else None
+except ValueError as error:
+    raise RuntimeError("DISCORD_GUILD_ID harus berupa angka") from error
+
+TIMEZONE = os.getenv("TIMEZONE", "Asia/Jakarta").strip()
+try:
+    ZoneInfo(TIMEZONE)
+except ZoneInfoNotFoundError as error:
+    raise RuntimeError("TIMEZONE tidak valid") from error
+VOICE_DATABASE_PATH = Path(os.getenv("VOICE_DATABASE_PATH", "data/voice_stats.db"))
+VOICE_EXPORT_DIR = Path(os.getenv("VOICE_EXPORT_DIR", "data/exports"))
 
 TIKTOK_FALLBACK_URL = os.getenv("TIKTOK_FALLBACK_URL", "https://snaptikhon.vercel.app/").strip()
 

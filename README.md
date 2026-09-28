@@ -35,6 +35,7 @@ Bot meminta pilihan kualitas **Biasa** atau **HD**, menghapus file sementara set
 - FFmpeg
 - Token Telegram Bot
 - Telegram user ID pemilik bot
+- Discord Bot Token (untuk monitoring Voice Channel)
 
 ## Instalasi Termux: Step By Step
 
@@ -125,6 +126,9 @@ TELEGRAM_BOT_TOKEN=TOKEN_BOT_BARU_DARI_BOTFATHER
 ALLOWED_TELEGRAM_USER_ID=123456789
 DOWNLOAD_DIR=downloads
 MAX_FILE_SIZE_MB=50
+DISCORD_BOT_TOKEN=TOKEN_DISCORD_BOT
+DISCORD_GUILD_ID=123456789012345678
+TIMEZONE=Asia/Jakarta
 ```
 
 Keterangan:
@@ -133,6 +137,9 @@ Keterangan:
 - `ALLOWED_TELEGRAM_USER_ID`: Telegram user ID yang boleh menggunakan bot.
 - `DOWNLOAD_DIR`: folder temporary download.
 - `MAX_FILE_SIZE_MB`: batas ukuran file sebelum upload.
+- `DISCORD_BOT_TOKEN`: token bot Discord untuk monitoring voice. Jika kosong, downloader Telegram tetap berjalan, tetapi monitoring Discord dinonaktifkan.
+- `DISCORD_GUILD_ID`: ID server Discord yang dipantau. Kosongkan hanya jika bot perlu memantau semua server yang dapat diaksesnya.
+- `TIMEZONE`: zona waktu tampilan statistik, default `Asia/Jakarta`.
 
 Simpan di nano dengan `Ctrl+O`, tekan `Enter`, lalu keluar dengan `Ctrl+X`.
 
@@ -167,6 +174,41 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
 6. Tunggu bot mengirim video.
 7. Periksa folder `downloads/`; file temporary seharusnya terhapus.
 8. Kirim `/start` dari akun lain untuk memastikan akses ditolak.
+
+## Monitoring Voice Discord
+
+Bot memakai akun Telegram yang sama dengan `ALLOWED_TELEGRAM_USER_ID`; tidak ada bot Telegram kedua. Data disimpan lokal di `data/voice_stats.db` dan semua waktu yang ditampilkan memakai `Asia/Jakarta`.
+
+Untuk menjaga data tetap privat, gunakan bot hanya melalui DM dari akun yang ID-nya ada pada `ALLOWED_TELEGRAM_USER_ID`. Command yang dikirim dari grup atau akun lain akan ditolak; menu command hanya dipasang pada chat owner.
+
+### Persiapan Discord
+
+1. Buat bot pada Discord Developer Portal dan salin tokennya ke `DISCORD_BOT_TOKEN`.
+2. Aktifkan **Server Members Intent** di halaman Bot. Bot juga membutuhkan akses melihat channel dan voice state pada server.
+3. Undang bot ke server dan isi `DISCORD_GUILD_ID` dengan ID server tersebut.
+4. Install ulang dependency Python setelah update project: `python -m pip install -r requirements.txt`.
+
+### Command monitoring
+
+- `/stats` — total seluruh aktivitas dan anggota teraktif.
+- `/today` — aktivitas hari ini per member dan channel.
+- `/history` atau `/history 7` — ringkasan aktivitas beberapa hari terakhir.
+- `/export` atau `/export 2026-09` — membuat dan mengirim Excel. Sheet: Sessions, Daily Summary, Member Summary, dan Channel Summary.
+- `/delete 2026-09` — hanya menampilkan peringatan dan jumlah sesi terdampak.
+- `/confirm_delete 2026-09` — menghapus setelah periode tersebut pernah berhasil diekspor.
+- `/storage` — ukuran database dan rentang data.
+
+Sesi aktif disimpan di SQLite. Saat bot restart dan member masih berada di channel yang sama, sesi dilanjutkan tanpa duplikasi. Jika member keluar ketika bot offline, Discord tidak menyediakan waktu keluar historis; sesi ditutup saat sinkronisasi reconnect mendeteksi member sudah tidak berada di voice channel.
+
+### Backup database
+
+Hentikan bot agar salinan konsisten, lalu jalankan:
+
+```bash
+cp data/voice_stats.db data/voice_stats.backup.db
+```
+
+Folder `data/`, database, dan Excel export tidak dilacak Git.
 
 ## Update Dependency
 
