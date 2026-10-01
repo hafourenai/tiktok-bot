@@ -1,13 +1,15 @@
 import asyncio
+import errno
 import html
 import logging
 import os
 import re
+from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import BotCommand, BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import TelegramError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
@@ -30,6 +32,7 @@ from config import (
 from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
 from voice_stats import VoiceStatsStore
+from menus import menu_content, menu_commands
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -48,6 +51,12 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 
 DOWNLOAD_LIMIT = asyncio.Semaphore(2)
 UTC = timezone.utc
+
+
+def is_local_file_error(error):
+    return isinstance(error, OSError) and error.errno in {
+        errno.EACCES, errno.EPERM, errno.ENOSPC, errno.EROFS, errno.ENOENT,
+    }
 
 
 def is_tiktok_url(text: str) -> bool:
@@ -219,6 +228,12 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except TelegramError:
             logger.warning("Could not remove export status message for %s", period)
         logger.info("[EXPORT] %s exported", period)
+    except OSError as error:
+        logger.exception("Excel file operation failed for %s", period)
+        await status.edit_text(
+            f"Export gagal saat mengakses file ({type(error).__name__}).\n"
+            "Periksa izin folder dan ruang kosong dengan python check_environment.py."
+        )
     except Exception:
         logger.exception("Excel export failed for %s", period)
         await status.edit_text("❌ Export gagal. Periksa log dan ruang penyimpanan Termux.")
@@ -276,49 +291,48 @@ async def confirm_delete_command(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await show_menu(update, context, "home")
+
+
+async def show_menu(update, context, section):
     if not is_allowed(update):
-        await deny(update)
+        if update.callback_query:
+            await update.callback_query.answer("Akses ditolak.", show_alert=True)
+        else:
+            await deny(update)
         return
-    await update.effective_message.reply_text(
-        "👋 <b>Selamat datang di Video Downloader</b>\n\n"
-        "Kirim link video TikTok atau YouTube publik dan bot akan membantu mengunduhnya.\n\n"
-        "<b>Cara menggunakan:</b>\n"
-        "1. Kirim link TikTok atau YouTube\n"
-        "2. Pilih kualitas video\n"
-        "3. Tunggu proses selesai\n\n"
-        "<b>Contoh:</b>\n"
-        "<code>https://vt.tiktok.com/...</code>\n"
-        "<code>https://youtu.be/...</code>\n\n"
-        "Gunakan /help untuk bantuan.",
-        parse_mode=ParseMode.HTML,
-    )
+    context.user_data["menu"] = section
+    text, keyboard = menu_content(section)
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    else:
+        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await context.bot.set_my_commands(menu_commands(section), scope=BotCommandScopeChat(chat_id=ALLOWED_USER_ID))
+
+
+async def category_command(update, context):
+    section = update.effective_message.text.split()[0].split("@")[0].lstrip("/")
+    await show_menu(update, context, section)
+
+
+async def menu_callback(update, context):
+    await show_menu(update, context, update.callback_query.data.split(":", 1)[1])
+
+
+async def action_callback(update, context):
+    if not is_allowed(update):
+        await update.callback_query.answer("Akses ditolak.", show_alert=True)
+        return
+    await update.callback_query.answer()
+    context.args = []
+    handlers = {"stats": stats_command, "today": today_command, "history": history_command,
+                "export": export_command, "storage": storage_command}
+    await handlers[update.callback_query.data.split(":", 1)[1]](update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_allowed(update):
-        await deny(update)
-        return
-    await update.effective_message.reply_text(
-        "❓ <b>Panduan Penggunaan Bot</b>\n\n"
-        "<b>Download Video</b>\n"
-        "Kirim link TikTok atau YouTube publik langsung ke chat ini.\n\n"
-        "<b>Profil TikTok</b>\n"
-        "• <code>/stalk [username]</code>\n"
-        "  <i>Contoh: <code>/stalk tiktok</code></i>\n"
-        "  Melihat foto profil, followers, following, total like & status akun.\n\n"
-        "<b>Monitoring Discord Voice</b>\n"
-        "• <code>/stats</code> — total aktivitas dan anggota teraktif.\n"
-        "• <code>/today</code> — rincian aktivitas voice hari ini.\n"
-        "• <code>/history</code> atau <code>/history 7</code> — ringkasan 7 hari atau periode 1-365 hari.\n"
-        "• <code>/storage</code> — ukuran database dan rentang data.\n\n"
-        "<b>Export & Hapus History Voice</b>\n"
-        "• <code>/export</code> — export bulan berjalan ke Excel.\n"
-        "• <code>/export 2026-09</code> — export bulan tertentu.\n"
-        "• <code>/delete 2026-09</code> — lihat peringatan penghapusan.\n"
-        "• <code>/confirm_delete 2026-09</code> — hapus setelah export bulan tersebut berhasil.\n\n"
-        "Waktu monitoring menggunakan Asia/Jakarta. Saat bot offline, waktu keluar voice tidak dapat diketahui dan akan disinkronkan saat bot kembali online.",
-        parse_mode=ParseMode.HTML,
-    )
+    await show_menu(update, context, context.user_data.get("menu", "home"))
 
 
 async def stalk_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -433,8 +447,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     platform = "TikTok" if is_tiktok else "YouTube"
-    context.user_data["pending_url"] = text
-    context.user_data["platform"] = platform
+    request_id = uuid4().hex[:12]
+    pending = context.user_data.setdefault("downloads", {})
+    if len(pending) >= 20:
+        pending.pop(next(iter(pending)))
+    pending[request_id] = (text, platform)
     await message.reply_text(
         f"🎬 <b>Video {platform} diterima</b>\n\n"
         "Pilih kualitas download:\n"
@@ -443,8 +460,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("Biasa (lebih kecil)", callback_data="quality:normal"),
-                InlineKeyboardButton("HD (lebih besar)", callback_data="quality:hd"),
+                InlineKeyboardButton("Biasa (lebih kecil)", callback_data=f"quality:normal:{request_id}"),
+                InlineKeyboardButton("HD (lebih besar)", callback_data=f"quality:hd:{request_id}"),
             ]
         ]),
     )
@@ -452,7 +469,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    if not query or not update.effective_user or update.effective_user.id != ALLOWED_USER_ID:
+    if not query or not is_allowed(update):
         if query:
             await query.answer("Kamu tidak diizinkan menggunakan bot ini.", show_alert=True)
         return
@@ -461,9 +478,10 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     message = query.message
     if not message:
         return
-    url = context.user_data.pop("pending_url", None)
-    platform = context.user_data.pop("platform", "TikTok")
-    quality = query.data.split(":", 1)[1] if query.data else "normal"
+    parts = (query.data or "").split(":")
+    quality = parts[1] if len(parts) > 1 else ""
+    request_id = parts[2] if len(parts) > 2 else ""
+    url, platform = context.user_data.get("downloads", {}).pop(request_id, (None, "video"))
     if not url or quality not in {"normal", "hd"}:
         await query.edit_message_text(
             f"❌ <b>Permintaan sudah tidak tersedia</b>\n\nKirim URL {platform} lagi.",
@@ -472,7 +490,7 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     status = await query.edit_message_text(
-        "⏳ <b>Menyiapkan download...</b>",
+        "⏳ <b>Permintaan diterima</b>\nMenunggu slot download...",
         parse_mode=ParseMode.HTML,
     )
     file_path: Path | None = None
@@ -480,25 +498,36 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         async with DOWNLOAD_LIMIT:
+            await status.edit_text(f"Mengunduh video {platform} ({'HD' if quality == 'hd' else 'Biasa'})...\nMengambil media dan menyiapkan file.")
             logger.info("User %s requested %s download", user_id, platform)
             if platform == "YouTube":
                 try:
                     file_path = await asyncio.to_thread(download_youtube, url, quality)
                 except Exception as yt_error:
+                    if is_local_file_error(yt_error):
+                        raise
                     logger.error("YouTube download failed for user %s: %s", user_id, yt_error)
                     raise DownloadError("YouTube download failed") from yt_error
             else:
                 try:
                     file_path = await asyncio.to_thread(download_tiktok, url, quality)
-                except Exception:
+                except Exception as primary_error:
+                    if is_local_file_error(primary_error):
+                        raise
+                    await status.edit_text("Metode utama belum berhasil. Mencoba downloader cadangan (2/3)...")
                     logger.warning("yt-dlp could not access the public TikTok page for user %s", user_id)
                     try:
                         file_path = await asyncio.to_thread(download_with_gallery_dl, url)
                     except Exception as fallback_error:
+                        if is_local_file_error(fallback_error):
+                            raise
+                        await status.edit_text("Mencoba downloader cadangan terakhir (3/3)...")
                         logger.error("gallery-dl fallback failed for user %s: %s", user_id, fallback_error)
                         try:
                             file_path = await asyncio.to_thread(download_with_tiktok_api_dl, url)
                         except Exception as api_error:
+                            if is_local_file_error(api_error):
+                                raise
                             logger.error("tiktok-api-dl fallback failed for user %s: %s", user_id, api_error)
                             raise DownloadError("TikTok page could not be accessed by available extractors") from api_error
         if not file_path.exists():
@@ -513,7 +542,7 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         await status.edit_text(
-            "✅ <b>Download selesai</b>\n\n📤 Mengirim video ke Telegram...",
+            f"✅ <b>Download selesai</b>\nUkuran: {file_path.stat().st_size / (1024 * 1024):.1f} MB\n\n📤 Mengirim video ke Telegram...",
             parse_mode=ParseMode.HTML,
         )
         logger.info("Upload started for user %s", user_id)
@@ -524,6 +553,17 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 parse_mode=ParseMode.HTML,
             )
         logger.info("Upload completed for user %s", user_id)
+        try:
+            await status.edit_text("Selesai — video berhasil dikirim.")
+        except TelegramError:
+            logger.warning("Could not update completed download status")
+    except OSError as error:
+        logger.exception("Local file or dependency error")
+        await status.edit_text(
+            "Proses file gagal. Periksa izin folder, ruang kosong, dan program pendukung.\n"
+            "Jalankan python check_environment.py di Termux untuk diagnosis.\n"
+            f"Jenis error: {type(error).__name__}"
+        )
     except DownloadError:
         logger.exception("Download failed for user %s", user_id)
         try:
@@ -556,7 +596,10 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             logger.exception("Could not update status message")
     finally:
         if file_path:
-            file_path.unlink(missing_ok=True)
+            try:
+                file_path.unlink(missing_ok=True)
+            except OSError:
+                logger.exception("Could not clean up downloaded file")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -564,20 +607,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def post_init(application: Application) -> None:
-    commands = [
-        BotCommand("start", "Mulai & info fitur bot"),
-        BotCommand("help", "Panduan bantuan penggunaan"),
-        BotCommand("stalk", "Cek profil & followers TikTok user"),
-        BotCommand("stats", "Statistik voice Discord"),
-        BotCommand("today", "Aktivitas voice hari ini"),
-        BotCommand("history", "Ringkasan aktivitas voice"),
-        BotCommand("export", "Export history voice ke Excel"),
-        BotCommand("delete", "Hapus history voice (konfirmasi)"),
-        BotCommand("confirm_delete", "Konfirmasi hapus history voice"),
-        BotCommand("storage", "Status penyimpanan voice"),
-    ]
     await application.bot.delete_my_commands()
-    await application.bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=ALLOWED_USER_ID))
+    await application.bot.set_my_commands(menu_commands("home"), scope=BotCommandScopeChat(chat_id=ALLOWED_USER_ID))
     monitor = application.bot_data.get("discord_monitor")
     if monitor and DISCORD_BOT_TOKEN:
         application.create_task(monitor.start(DISCORD_BOT_TOKEN), name="discord-voice-monitor")
@@ -610,6 +641,10 @@ def main() -> None:
     application.bot_data["voice_store"] = store
     application.bot_data["discord_monitor"] = DiscordVoiceMonitor(store, DISCORD_GUILD_ID)
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", start))
+    application.add_handler(CommandHandler(["downloader", "discord"], category_command))
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord)$"))
+    application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage)$"))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stalk", stalk_command))
     application.add_handler(CommandHandler("stats", stats_command))
@@ -619,7 +654,7 @@ def main() -> None:
     application.add_handler(CommandHandler("delete", delete_command))
     application.add_handler(CommandHandler("confirm_delete", confirm_delete_command))
     application.add_handler(CommandHandler("storage", storage_command))
-    application.add_handler(CallbackQueryHandler(handle_quality, pattern=r"^quality:(normal|hd)$"))
+    application.add_handler(CallbackQueryHandler(handle_quality, pattern=r"^quality:(normal|hd)(:[a-f0-9]{12})?$"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
     logger.info("Bot started")

@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import os
+import tempfile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -136,5 +138,14 @@ def export_period(store: VoiceStatsStore, start: datetime, end: datetime, output
     _finish_sheet(channel_sheet, 3)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    workbook.save(output)
+    # Write beside the destination so a failed save cannot truncate a previous export.
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".voice-export-", suffix=".xlsx", dir=output.parent)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        workbook.save(temporary)
+        temporary.replace(output)
+    finally:
+        workbook.close()
+        temporary.unlink(missing_ok=True)
     return output

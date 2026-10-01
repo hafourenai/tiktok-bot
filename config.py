@@ -5,7 +5,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+
+def project_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else BASE_DIR / path
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 if not TELEGRAM_BOT_TOKEN:
@@ -20,7 +26,7 @@ except ValueError as error:
 if ALLOWED_USER_ID <= 0:
     raise RuntimeError("ALLOWED_TELEGRAM_USER_ID belum diatur di .env")
 
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
+DOWNLOAD_DIR = str(project_path(os.getenv("DOWNLOAD_DIR", "downloads")))
 MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
@@ -35,8 +41,8 @@ try:
     ZoneInfo(TIMEZONE)
 except ZoneInfoNotFoundError as error:
     raise RuntimeError("TIMEZONE tidak valid") from error
-VOICE_DATABASE_PATH = Path(os.getenv("VOICE_DATABASE_PATH", "data/voice_stats.db"))
-VOICE_EXPORT_DIR = Path(os.getenv("VOICE_EXPORT_DIR", "data/exports"))
+VOICE_DATABASE_PATH = project_path(os.getenv("VOICE_DATABASE_PATH", "data/voice_stats.db"))
+VOICE_EXPORT_DIR = project_path(os.getenv("VOICE_EXPORT_DIR", "data/exports"))
 
 TIKTOK_FALLBACK_URL = os.getenv("TIKTOK_FALLBACK_URL", "https://snaptikhon.vercel.app/").strip()
 

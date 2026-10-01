@@ -6,6 +6,12 @@ Bot meminta pilihan kualitas **Biasa** atau **HD**, menghapus file sementara set
 
 ## Fitur
 
+- `/start` atau `/menu` membuka pilihan **Downloader** dan **Discord**.
+- Menu command menyesuaikan kategori yang dipilih; `/help` membuka panduan kategori aktif.
+- Menu Discord menyediakan tombol statistik, hari ini, riwayat 7 hari, export bulan ini, dan penyimpanan.
+- Status download: menunggu slot, mengunduh, mencoba fallback bila diperlukan, mengirim (beserta ukuran file), dan selesai. Status berupa tahapan, bukan persentase.
+- Setiap pilihan kualitas terikat pada link masing-masing, sehingga beberapa link tidak saling menimpa.
+
 - `/start` dan `/help`
 - Validasi link TikTok: `tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com`
 - Validasi link YouTube: `youtube.com`, `youtu.be`
@@ -248,6 +254,34 @@ python bot.py
 Pasang add-on Termux:API hanya jika perintah `termux-wake-lock` belum tersedia.
 
 ## Troubleshooting
+
+### Diagnosis dependency dan penyimpanan Termux
+
+Jalankan dari folder project dengan virtual environment yang sama dengan bot:
+
+```bash
+source venv/bin/activate
+python -m pip install -r requirements.txt
+npm install
+python check_environment.py
+```
+
+Pemeriksa melaporkan import dependency Python, Node.js, FFmpeg, package TikTok,
+izin menulis pada folder download/database/export, dan ruang kosong. Exit code 1
+menandakan pemeriksaan gagal. Jika Node.js atau FFmpeg belum tersedia:
+
+```bash
+pkg install nodejs-lts ffmpeg
+```
+
+Path relatif di `.env` sekarang dihitung dari folder project, bukan direktori
+terminal saat bot dijalankan. Path absolut dan `~` juga didukung. Simpan project
+dan database di direktori home Termux, misalnya `~/tiktok-bot`, agar penyimpanan
+database tidak bergantung pada izin shared storage Android.
+
+Jika masih gagal, sertakan traceback dan hasil diagnosis (sensor informasi rahasia).
+Error dari perangkat Termux perlu diperiksa langsung; pemeriksaan lokal tidak
+menjamin koneksi downloader eksternal tersedia.
 
 ### `python: command not found`
 

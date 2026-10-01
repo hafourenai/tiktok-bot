@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from uuid import uuid4
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -25,7 +26,7 @@ def download_tiktok(url: str, quality: str = "normal") -> Path:
 
     options = {
         "format": video_format,
-        "outtmpl": str(download_dir / f"%(id)s-{quality}.%(ext)s"),
+        "outtmpl": str(download_dir / f"{uuid4().hex}-%(id)s-{quality}.%(ext)s"),
         "noplaylist": True,
         "merge_output_format": "mp4",
         "quiet": True,
@@ -59,7 +60,7 @@ def download_with_gallery_dl(url: str) -> Path:
         files = [item for item in work_dir.rglob("*") if item.is_file() and item.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}]
         if not files:
             raise FileNotFoundError("gallery-dl did not produce a video file")
-        target = download_dir / f"gallery-{files[0].name}"
+        target = download_dir / f"gallery-{uuid4().hex}{files[0].suffix}"
         shutil.move(str(files[0]), target)
         return target
     finally:
@@ -72,8 +73,11 @@ def cleanup_downloads(directory: str) -> None:
     if not path.exists():
         return
     for item in path.iterdir():
-        if item.is_file():
-            item.unlink(missing_ok=True)
+        if item.is_file() and item.name != ".gitkeep":
+            try:
+                item.unlink(missing_ok=True)
+            except OSError:
+                logger.exception("Could not remove leftover download: %s", item)
 
 
 def download_with_tiktok_api_dl(url: str) -> Path:
@@ -93,10 +97,14 @@ def download_with_tiktok_api_dl(url: str) -> Path:
     except (json.JSONDecodeError, KeyError) as error:
         raise RuntimeError("tiktok-api-dl returned an invalid response") from error
 
-    target = download_dir / "tiktok-api-dl.mp4"
+    target = download_dir / f"tiktok-api-{uuid4().hex}.mp4"
     request = Request(media_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.tiktok.com/"})
-    with urlopen(request, timeout=300) as response, target.open("wb") as video:
-        shutil.copyfileobj(response, video)
+    try:
+        with urlopen(request, timeout=300) as response, target.open("wb") as video:
+            shutil.copyfileobj(response, video)
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
     if not target.exists() or target.stat().st_size == 0:
         target.unlink(missing_ok=True)
         raise FileNotFoundError("tiktok-api-dl did not produce a video file")
@@ -138,7 +146,7 @@ def download_youtube(url: str, quality: str = "normal") -> Path:
 
     options = {
         "format": video_format,
-        "outtmpl": str(download_dir / f"%(id)s-{quality}.%(ext)s"),
+        "outtmpl": str(download_dir / f"{uuid4().hex}-%(id)s-{quality}.%(ext)s"),
         "noplaylist": True,
         "merge_output_format": "mp4",
         "quiet": True,
