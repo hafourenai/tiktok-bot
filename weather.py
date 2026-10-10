@@ -14,8 +14,9 @@ UTC = timezone.utc
 BMKG_URL = "https://api.bmkg.go.id/publik/prakiraan-cuaca"
 WILAYAH_URL = "https://wilayah.id/api"
 MAPPING_ERROR = (
-    "Lokasi belum dapat dicocokkan secara pasti ke kelurahan/desa BMKG. "
-    "Kirim /cuaca lagi dengan titik lokasi yang lebih jelas."
+    "Lokasi diterima, tetapi data peta belum dapat dicocokkan secara unik ke kelurahan/desa BMKG. "
+    "Nama/kode wilayah antarpenyedia bisa berbeda atau belum lengkap. "
+    "Kirim /cuaca lagi untuk mencoba titik lain di wilayah Anda."
 )
 
 
@@ -24,7 +25,7 @@ class WeatherError(Exception):
 
 
 def normalized_name(value):
-    value = str(value).casefold().strip()
+    value = " ".join(str(value).casefold().split())
     aliases = {
         "daerah khusus ibukota jakarta": "dki jakarta",
         "daerah khusus jakarta": "dki jakarta",
@@ -32,7 +33,9 @@ def normalized_name(value):
     }
     value = aliases.get(value, value)
     value = re.sub(r"^(?:kota\s+(?:administrasi|adm\.?)\s+|kabupaten\s+|kota\s+|kecamatan\s+|kelurahan\s+|desa\s+)", "", value)
-    return " ".join(value.split())
+    # Formatting only, not fuzzy similarity: Ballaparang == Balla Parang,
+    # Kassi-Kassi == Kassi Kassi. Callers still require a unique sibling match.
+    return re.sub(r"[\s\-‐‑–—]+", "", value)
 
 
 def match_region(rows, name, pattern):
@@ -55,6 +58,54 @@ class WeatherService:
         self.geocoder_url = geocoder_url.rstrip("/")
         self._lock = asyncio.Lock()
         self._last_request = 0.0
+
+    async def regions(self, level, parent_code=""):
+        endpoints = {1: "provinces", 2: "regencies", 3: "districts", 4: "villages"}
+        if level not in endpoints or (level > 1 and not re.fullmatch(
+            {2: r"\d{2}", 3: r"\d{2}\.\d{2}", 4: r"\d{2}\.\d{2}\.\d{2}"}[level], parent_code
+        )):
+            raise WeatherError("Kode induk wilayah tidak valid. Mulai lagi dengan /cuaca_manual.")
+        suffix = f"/{parent_code}" if level > 1 else ""
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                response = await client.get(f"{WILAYAH_URL}/{endpoints[level]}{suffix}.json")
+                response.raise_for_status()
+                rows = response.json()["data"]
+            if not isinstance(rows, list) or not rows:
+                raise ValueError
+            pattern = region_code_pattern(level, parent_code)
+            if any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
+                   or not row["name"].strip() or not re.fullmatch(pattern, str(row.get("code", ""))) for row in rows):
+                raise ValueError
+            return rows
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise WeatherError("Daftar wilayah belum tersedia. Coba /cuaca_manual lagi nanti.") from None
+
+    async def forecast_for_regions(self, selected):
+        try:
+            if len(selected) != 4:
+                raise ValueError
+            parent = ""
+            for level, region in enumerate(selected, 1):
+                if not re.fullmatch(region_code_pattern(level, parent), region["code"]):
+                    raise ValueError
+                parent = region["code"]
+            async with self._lock:
+                # BMKG public API: max 60 requests/minute/IP.
+                await asyncio.sleep(max(0, 1.1 - (time.monotonic() - self._last_request)))
+                self._last_request = time.monotonic()
+                async with httpx.AsyncClient(timeout=12) as client:
+                    response = await client.get(BMKG_URL, params={"adm4": parent})
+                    response.raise_for_status()
+                    data = response.json()
+            validate_forecast_region(data, parent, [region["name"] for region in selected])
+            return format_forecast(data, parent, mapped=False)
+        except WeatherError:
+            raise
+        except httpx.HTTPError:
+            raise WeatherError("BMKG sedang tidak tersedia. Coba /cuaca_manual lagi nanti.") from None
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+            raise WeatherError("Data wilayah atau prakiraan tidak lengkap/valid. Coba /cuaca_manual lagi nanti.") from None
 
     async def forecast(self, latitude, longitude):
         # Serialize requests for this private bot; also stay below Nominatim's 1/s limit.
@@ -108,13 +159,21 @@ class WeatherService:
                 code = region["code"]
                 names.append(region["name"])
             data = await get(BMKG_URL, adm4=code)
-            location = data["lokasi"]
-            if location.get("adm4") != code or any(
-                normalized_name(location.get(key, "")) != normalized_name(name)
-                for key, name in zip(("provinsi", "kotkab", "kecamatan", "desa"), names)
-            ):
-                raise WeatherError(MAPPING_ERROR)
+            validate_forecast_region(data, code, names)
             return format_forecast(data, code)
+
+
+def region_code_pattern(level, parent_code=""):
+    return r"\d{2}" if level == 1 else re.escape(parent_code) + (r"\.\d{4}" if level == 4 else r"\.\d{2}")
+
+
+def validate_forecast_region(data, code, names):
+    location = data["lokasi"]
+    if location.get("adm4") != code or any(
+        normalized_name(location.get(key, "")) != normalized_name(name)
+        for key, name in zip(("provinsi", "kotkab", "kecamatan", "desa"), names)
+    ):
+        raise WeatherError("Kode/nama wilayah BMKG tidak sesuai dengan wilayah yang dipilih. Prakiraan tidak ditampilkan.")
 
 
 def utc_date(value):
@@ -128,7 +187,7 @@ def measurement(value, unit):
     return f"{value:g}{unit}"
 
 
-def format_forecast(data, code, now=None):
+def format_forecast(data, code, now=None, mapped=True):
     now = now or datetime.now(UTC)
     location = data["lokasi"]
     tz_name = location["timezone"]
@@ -173,7 +232,10 @@ def format_forecast(data, code, now=None):
     lines.extend(["", f"Produksi data: {min(productions).astimezone(tz):%d/%m/%Y %H:%M} {labels[tz_name]}",
                   'Sumber: <a href="https://data.bmkg.go.id/prakiraan-cuaca/">BMKG</a>',
                   f'<a href="https://www.bmkg.go.id/cuaca/prakiraan-cuaca/{code}">Prakiraan lengkap hingga 3 hari</a>',
-                  'Pemetaan: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>; kode: <a href="https://wilayah.id">Wilayah.id</a>.',
-                  "", "Prakiraan wilayah, bukan pengamatan real-time di titik GPS. Periksa nama wilayah di atas; pemetaan dapat meleset dekat batas wilayah.",
-                  "Untuk permintaan berikutnya, kirim /cuaca dan lokasi baru."])
+                  ('Pemetaan: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>; kode: <a href="https://wilayah.id">Wilayah.id</a>.'
+                   if mapped else 'Wilayah dipilih manual; kode: <a href="https://wilayah.id">Wilayah.id</a>.'),
+                  "", ("Prakiraan wilayah, bukan pengamatan real-time di titik GPS. Periksa nama wilayah di atas; pemetaan dapat meleset dekat batas wilayah."
+                         if mapped else "Prakiraan wilayah, bukan pengamatan real-time. Periksa nama wilayah yang dipilih di atas."),
+                  ("Untuk permintaan berikutnya, kirim /cuaca dan lokasi baru." if mapped else
+                   "Untuk permintaan berikutnya, kirim /cuaca_manual dan pilih wilayah lagi.")])
     return "\n".join(lines)

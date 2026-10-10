@@ -7,7 +7,7 @@ Bot meminta pilihan kualitas **Biasa** atau **HD**, menghapus file sementara set
 ## Fitur
 
 - `/start` atau `/menu` membuka pilihan **Downloader**, **Discord**, dan **Cuaca**.
-- `/cuaca` meminta lokasi baru untuk prakiraan resmi BMKG di Indonesia; lokasi dipakai sekali per permintaan.
+- `/cuaca` menawarkan input wilayah manual atau lokasi GPS untuk prakiraan resmi BMKG di Indonesia; wilayah dipakai sekali per permintaan.
 - Menu command menyesuaikan kategori yang dipilih; `/help` membuka panduan kategori aktif.
 - Menu Discord menyediakan tombol statistik, hari ini, riwayat 7 hari, export bulan ini, dan penyimpanan.
 - Status download: menunggu slot, mengunduh, mencoba fallback bila diperlukan, mengirim (beserta ukuran file), dan selesai. Status berupa tahapan, bukan persentase.
@@ -184,7 +184,29 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
 
 ## Prakiraan Cuaca Indonesia
 
-1. Kirim `/cuaca`, atau pilih **Cuaca → Minta prakiraan** dari menu utama.
+### Input nama wilayah manual
+
+1. Pilih **Cuaca → Input wilayah manual**, kirim `/cuaca_manual`, atau pilih
+   **Input wilayah manual** setelah `/cuaca`.
+2. Bot meminta **provinsi → kota/kabupaten → kecamatan → kelurahan/desa** satu per satu.
+3. Ketik nama lengkap atau pilih tombol saran. Setiap nama harus cocok secara unik
+   dengan daftar Wilayah.id pada induk wilayah yang sudah dipilih.
+   Jika nama kota dan kabupaten sama, sertakan `Kota` atau `Kabupaten`.
+   Input salah dapat diperbaiki pada tahap yang sama; `/cuaca_manual` memulai ulang.
+4. Setelah kelurahan/desa dipilih, bot memvalidasi kode serta nama wilayah pada BMKG
+   dan mengirim prakiraan. Alur manual tidak memanggil layanan pemetaan GPS.
+
+Contoh: **Sulawesi Selatan → Kota Makassar → Rappocini → Balla Parang**.
+Tombol menampilkan maksimal 20 saran per tahap; nama wilayah lain tetap bisa diketik.
+Nama pilihan dan daftar saran hanya ada sementara di memori selama alur input,
+lalu dihapus saat selesai, gagal mengambil data, dibatalkan, atau kedaluwarsa terdeteksi.
+Setiap permintaan baru harus memilih wilayah lagi, tanpa lokasi default tersimpan.
+Permintaan berlaku 5 menit sejak input manual dimulai. `/batal` membatalkan permintaan;
+`/menu` juga membatalkan input yang masih berjalan.
+
+### Lokasi GPS
+
+1. Kirim `/cuaca`, atau pilih **Cuaca → Kirim lokasi GPS** dari menu utama.
 2. Tekan **Kirim lokasi saya** di Telegram mobile. Alternatif: Lampiran → Lokasi → Kirim lokasi saat ini.
    Titik peta atau tempat bernama (venue) yang dipilih dari menu Lokasi juga didukung;
    prakiraan mengikuti koordinat tempat yang dikirim.
@@ -196,7 +218,7 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
 Permintaan lokasi berlaku 5 menit. Bot hanya menerima satu pesan lokasi statis baru setelah
 permintaan; live location dan edit lokasi tidak digunakan. Permintaan juga selesai jika
 pemetaan/API gagal. Nama kota dalam `/cuaca Jakarta` tidak digunakan sebagai pengganti GPS:
-bot tetap meminta lokasi baru. Akses tetap terbatas pada DM pemilik bot.
+bot tetap menawarkan input manual atau lokasi baru. Akses tetap terbatas pada DM pemilik bot.
 
 ### Sumber dan ketepatan wilayah
 
@@ -209,6 +231,9 @@ bot tetap meminta lokasi baru. Akses tetap terbatas pada DM pemilik bot.
 - **Pemetaan GPS:** Nominatim/OpenStreetMap, dengan kode administratif dari
   [Wilayah.id](https://wilayah.id). Ini hanya pemetaan; semua nilai cuaca berasal dari BMKG.
   Nama provinsi, kabupaten/kota, kecamatan, dan kelurahan/desa harus cocok secara unik;
+  variasi spasi, tanda hubung, dan awalan administratif dinormalisasi
+  (misalnya `Ballaparang` → `Balla Parang`). Pencocokan nama persis diprioritaskan;
+  jika normalisasi menghasilkan lebih dari satu kandidat, pemetaan ditolak.
   kode dan nama hasil BMKG diverifikasi lagi. Perbedaan versi kode wilayah antarpenyedia
   dapat menyebabkan pemetaan ditolak. Tidak ada pencocokan nama samar atau fallback cuaca lain.
 - Reverse geocoding memakai objek peta terdekat; hasil yang berjarak lebih dari 2 km ditolak.

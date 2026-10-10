@@ -70,13 +70,16 @@ def test_ambiguous_regency_does_not_guess():
     assert weather.match_region(rows, "Kota Bandung", r"32\.\d{2}")["code"] == "32.73"
 
 
-def install_api(monkeypatch, country="id", missing_level=False, mismatch=False, fail=False):
+def install_api(monkeypatch, country="id", missing_level=False, mismatch=False, fail=False, village_names=None):
     calls = []
     admin = {"level4": "Daerah Khusus Ibukota Jakarta", "level5": "Jakarta Pusat",
              "level6": "Kemayoran", "level7": "Kemayoran"}
+    data = forecast_data()
+    osm_name, wilayah_name, bmkg_name = village_names or ("Kemayoran", "Kemayoran", "Kemayoran")
+    admin["level7"] = osm_name
+    data["lokasi"]["desa"] = bmkg_name
     if missing_level:
         del admin["level7"]
-    data = forecast_data()
     if mismatch:
         data["lokasi"]["desa"] = "Desa Lain"
     routes = {
@@ -85,7 +88,7 @@ def install_api(monkeypatch, country="id", missing_level=False, mismatch=False, 
         "/api/provinces.json": {"data": [{"code": "31", "name": "DKI Jakarta"}]},
         "/api/regencies/31.json": {"data": [{"code": "31.71", "name": "Kota Administrasi Jakarta Pusat"}]},
         "/api/districts/31.71.json": {"data": [{"code": "31.71.03", "name": "Kemayoran"}]},
-        "/api/villages/31.71.03.json": {"data": [{"code": CODE, "name": "Kemayoran"}]},
+        "/api/villages/31.71.03.json": {"data": [{"code": CODE, "name": wilayah_name}]},
         "/publik/prakiraan-cuaca": data,
     }
 
@@ -98,8 +101,32 @@ def install_api(monkeypatch, country="id", missing_level=False, mismatch=False, 
     original_client = httpx.AsyncClient
     monkeypatch.setattr(weather.httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs))
     original_format = weather.format_forecast
-    monkeypatch.setattr(weather, "format_forecast", lambda data, code: original_format(data, code, NOW))
+    monkeypatch.setattr(weather, "format_forecast", lambda data, code, **kwargs: original_format(data, code, NOW, **kwargs))
     return calls
+
+
+@pytest.mark.parametrize("names", [("Ballaparang", "Balla Parang", "Balla Parang"),
+                                   ("Balla Parang", "Balla Parang", "Ballaparang"),
+                                   ("Kassi Kassi", "Kassi-Kassi", "Kassi-Kassi")])
+def test_name_format_variations_map_and_validate_bmkg(monkeypatch, names):
+    calls = install_api(monkeypatch, village_names=names)
+    text = asyncio.run(weather.WeatherService("https://geo.example").forecast(-6.16472, 106.84538))
+    assert names[2] in text
+    assert dict(calls[-1].url.params) == {"adm4": CODE}
+
+
+def test_separator_normalization_rejects_ambiguous_names():
+    rows = [{"name": "Balla Parang", "code": "73.71.13.1007"},
+            {"name": "Balla-Parang", "code": "73.71.13.1008"}]
+    with pytest.raises(weather.WeatherError):
+        weather.match_region(rows, "Ballaparang", r"73\.71\.13\.\d{4}")
+    assert weather.match_region(rows, "Balla Parang", r"73\.71\.13\.\d{4}")["code"] == "73.71.13.1007"
+
+
+def test_format_normalization_does_not_accept_typo():
+    with pytest.raises(weather.WeatherError):
+        weather.match_region([{"name": "Balla Parang", "code": "73.71.13.1007"}],
+                             "Balla Parangx", r"73\.71\.13\.\d{4}")
 
 
 def test_full_mapping_and_bmkg_request(monkeypatch):
@@ -114,7 +141,7 @@ def test_full_mapping_and_bmkg_request(monkeypatch):
 
 @pytest.mark.parametrize("options,expected", [({"country": "sg"}, "Indonesia"),
                                              ({"missing_level": True}, "dicocokkan"),
-                                             ({"mismatch": True}, "dicocokkan"),
+                                             ({"mismatch": True}, "sesuai"),
                                              ({"fail": True}, "tidak tersedia")])
 def test_api_failures_are_safe(monkeypatch, options, expected):
     install_api(monkeypatch, **options)
@@ -143,7 +170,7 @@ def test_each_request_requires_new_location_even_after_failure():
         for failure in (False, True):
             await bot.weather_command(update, context)
             keyboard = update.message.reply_text.call_args.kwargs["reply_markup"]
-            assert keyboard.keyboard[0][0].request_location
+            assert keyboard.keyboard[1][0].request_location
             if failure:
                 service.forecast.side_effect = weather.WeatherError("BMKG tidak tersedia")
             await bot.handle_weather_location(update, context)

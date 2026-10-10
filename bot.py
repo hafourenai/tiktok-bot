@@ -36,7 +36,7 @@ from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
 from voice_stats import VoiceStatsStore
 from menus import menu_content, menu_commands
-from weather import WeatherError, WeatherService
+from weather import WeatherError, WeatherService, match_region, region_code_pattern
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -57,6 +57,8 @@ DOWNLOAD_LIMIT = asyncio.Semaphore(2)
 UTC = timezone.utc
 WEATHER_REQUEST_TTL = 300
 WEATHER_LOCATION_FILTER = filters.LOCATION | filters.VENUE
+WEATHER_MANUAL_LABEL = "Input wilayah manual"
+WEATHER_REGION_LABELS = ("provinsi", "kota/kabupaten", "kecamatan", "kelurahan/desa")
 
 
 def is_local_file_error(error):
@@ -305,18 +307,101 @@ async def weather_command(update, context):
         await deny(update)
         return
     context.user_data["weather_request"] = time.time()
+    context.user_data.pop("weather_manual", None)
     await update.effective_message.reply_text(
-        "Kirim lokasi Anda saat ini untuk prakiraan BMKG di Indonesia.\n"
+        "Pilih Input wilayah manual untuk mengetik provinsi, kota/kabupaten, kecamatan, dan kelurahan/desa.\n"
+        "Atau kirim lokasi Anda saat ini untuk prakiraan BMKG di Indonesia.\n"
         "Gunakan tombol di bawah atau Lampiran → Lokasi → Kirim lokasi saat ini.\n"
         "Titik peta atau tempat bernama yang dipilih dari menu Lokasi juga didukung.\n"
         "Lokasi dipakai sekali, diteruskan ke layanan pemetaan OpenStreetMap, "
         "dan tidak disimpan oleh aplikasi bot. Kirim lokasi statis, bukan live location.\n"
         "Permintaan berlaku 5 menit. /batal untuk membatalkan.",
         reply_markup=ReplyKeyboardMarkup(
-            [[KeyboardButton("Kirim lokasi saya", request_location=True)], ["/batal"]],
+            [[WEATHER_MANUAL_LABEL], [KeyboardButton("Kirim lokasi saya", request_location=True)], ["/batal"]],
             resize_keyboard=True, one_time_keyboard=True,
         ),
     )
+
+
+async def prompt_weather_region(message, state):
+    level = len(state["selected"])
+    label = WEATHER_REGION_LABELS[level]
+    rows = state["rows"]
+    names = [row["name"] for row in rows[:20]]
+    parent = state["selected"][-1]["name"] if state["selected"] else "Indonesia"
+    text = f"Masukkan nama {label} di {parent}."
+    if level == 1:
+        text += " Gunakan awalan Kota atau Kabupaten bila namanya sama."
+    text += "\nKetik nama lengkap atau pilih tombol. Permintaan berlaku 5 menit. /batal untuk membatalkan."
+    if len(rows) > 20:
+        text += f"\nTombol menampilkan 20 dari {len(rows)} wilayah; nama lainnya tetap bisa diketik."
+    await message.reply_text(text, reply_markup=ReplyKeyboardMarkup(
+        [[name] for name in names] + [["/batal"]], resize_keyboard=True, one_time_keyboard=True,
+    ))
+
+
+async def weather_manual_command(update, context):
+    if not is_allowed(update):
+        await deny(update)
+        return
+    context.user_data.pop("weather_request", None)
+    context.user_data.pop("weather_manual", None)
+    service = context.application.bot_data["weather_service"]
+    try:
+        rows = await service.regions(1)
+    except WeatherError as error:
+        await update.effective_message.reply_text(str(error), reply_markup=ReplyKeyboardRemove())
+        return
+    state = {"started": time.time(), "selected": [], "rows": rows}
+    context.user_data["weather_manual"] = state
+    await prompt_weather_region(update.effective_message, state)
+
+
+async def handle_weather_region_text(update, context):
+    message = update.effective_message
+    state = context.user_data["weather_manual"]
+    if time.time() - state["started"] > WEATHER_REQUEST_TTL:
+        context.user_data.pop("weather_manual", None)
+        await message.reply_text("Permintaan wilayah kedaluwarsa. Kirim /cuaca_manual lagi.", reply_markup=ReplyKeyboardRemove())
+        return
+    if not update.message or message.date.timestamp() < int(state["started"]):
+        await message.reply_text("Kirim nama wilayah sebagai pesan baru.")
+        return
+    level = len(state["selected"]) + 1
+    parent = state["selected"][-1]["code"] if state["selected"] else ""
+    try:
+        region = match_region(state["rows"], message.text.strip(), region_code_pattern(level, parent))
+    except WeatherError:
+        await message.reply_text("Nama belum cocok secara unik. Periksa ejaan; untuk kota/kabupaten sertakan awalannya.")
+        await prompt_weather_region(message, state)
+        return
+    selected = state["selected"] + [region]
+    service = context.application.bot_data["weather_service"]
+    if level < 4:
+        try:
+            rows = await service.regions(level + 1, region["code"])
+        except WeatherError as error:
+            context.user_data.pop("weather_manual", None)
+            await message.reply_text(str(error), reply_markup=ReplyKeyboardRemove())
+            return
+        state["selected"], state["rows"] = selected, rows
+        await prompt_weather_region(message, state)
+        return
+    # Consume the complete request before network I/O; never reuse the selected location.
+    context.user_data.pop("weather_manual", None)
+    status = await message.reply_text("Mengambil prakiraan BMKG untuk wilayah pilihan...", reply_markup=ReplyKeyboardRemove())
+    try:
+        text = await service.forecast_for_regions(selected)
+    except WeatherError as error:
+        text = html.escape(str(error))
+    except Exception as error:
+        logger.warning("Manual weather request failed (%s)", type(error).__name__)
+        text = "Prakiraan gagal diproses. Kirim /cuaca_manual lagi nanti."
+    await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    try:
+        await status.delete()
+    except TelegramError:
+        logger.warning("Could not remove manual weather status message")
 
 
 async def cancel_weather(update, context):
@@ -324,6 +409,7 @@ async def cancel_weather(update, context):
         await deny(update)
         return
     context.user_data.pop("weather_request", None)
+    context.user_data.pop("weather_manual", None)
     await update.effective_message.reply_text("Permintaan cuaca dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
 
@@ -335,6 +421,9 @@ async def handle_weather_location(update, context):
     if not update.message:
         return
     message = update.effective_message
+    if "weather_manual" in context.user_data:
+        await message.reply_text("Anda sedang mengisi wilayah manual. Ketik nama wilayah yang diminta, atau /cuaca untuk memakai GPS.")
+        return
     location = message.location
     if location is None and message.venue is not None:
         location = message.venue.location
@@ -374,7 +463,9 @@ async def show_menu(update, context, section):
         else:
             await deny(update)
         return
-    if context.user_data.pop("weather_request", None) is not None:
+    pending_location = context.user_data.pop("weather_request", None)
+    pending_manual = context.user_data.pop("weather_manual", None)
+    if pending_location is not None or pending_manual is not None:
         await update.effective_message.reply_text("Permintaan lokasi dibatalkan.", reply_markup=ReplyKeyboardRemove())
     context.user_data["menu"] = section
     text, keyboard = menu_content(section)
@@ -402,7 +493,8 @@ async def action_callback(update, context):
     await update.callback_query.answer()
     context.args = []
     handlers = {"stats": stats_command, "today": today_command, "history": history_command,
-                "export": export_command, "storage": storage_command, "cuaca": weather_command}
+                "export": export_command, "storage": storage_command, "cuaca": weather_command,
+                "cuaca_manual": weather_manual_command}
     await handlers[update.callback_query.data.split(":", 1)[1]](update, context)
 
 
@@ -509,6 +601,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     message = update.effective_message
     text = (message.text or "").strip()
+    if "weather_manual" in context.user_data:
+        await handle_weather_region_text(update, context)
+        return
+    if text == WEATHER_MANUAL_LABEL:
+        await weather_manual_command(update, context)
+        return
     
     is_tiktok = is_tiktok_url(text)
     is_youtube = is_youtube_url(text)
@@ -728,8 +826,9 @@ def main() -> None:
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler(["downloader", "discord"], category_command))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca)$"))
-    application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca)$"))
+    application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca|cuaca_manual)$"))
     application.add_handler(CommandHandler("cuaca", weather_command))
+    application.add_handler(CommandHandler("cuaca_manual", weather_manual_command))
     application.add_handler(CommandHandler("batal", cancel_weather))
     application.add_handler(MessageHandler(WEATHER_LOCATION_FILTER, handle_weather_location))
     application.add_handler(CommandHandler("help", help_command))
