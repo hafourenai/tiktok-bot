@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from telegram import Update
 from telegram.error import BadRequest
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
@@ -190,6 +191,31 @@ def test_waiting_for_location_does_not_report_invalid_download_url():
         await bot.handle_message(update, context)
         assert "Kirim lokasi saya" in update.message.reply_text.call_args.args[0]
         service.forecast.assert_not_awaited()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("kind", ["location", "venue"])
+def test_telegram_location_and_venue_updates_reach_weather_handler(kind):
+    async def scenario():
+        _, context, service, status = telegram_context()
+        context.user_data["weather_request"] = time.time()
+        coordinates = {"latitude": -6.16472, "longitude": 106.84538}
+        payload = coordinates if kind == "location" else {
+            "location": coordinates, "title": "Tempat saya", "address": "Kemayoran",
+        }
+        update = Update.de_json({
+            "update_id": 1,
+            "message": {"message_id": 2, "date": int(time.time()),
+                        "from": {"id": 123, "is_bot": False, "first_name": "Owner"},
+                        "chat": {"id": 123, "type": "private"}, kind: payload},
+        }, None)
+        assert bot.WEATHER_LOCATION_FILTER.check_update(update)
+        telegram_bot = SimpleNamespace(send_message=AsyncMock(return_value=status))
+        update.message.set_bot(telegram_bot)
+        await bot.handle_weather_location(update, context)
+        service.forecast.assert_awaited_once_with(-6.16472, 106.84538)
+        assert telegram_bot.send_message.call_args.kwargs["text"] == "Prakiraan BMKG"
+        assert "weather_request" not in context.user_data
     asyncio.run(scenario())
 
 

@@ -56,6 +56,7 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 DOWNLOAD_LIMIT = asyncio.Semaphore(2)
 UTC = timezone.utc
 WEATHER_REQUEST_TTL = 300
+WEATHER_LOCATION_FILTER = filters.LOCATION | filters.VENUE
 
 
 def is_local_file_error(error):
@@ -307,6 +308,7 @@ async def weather_command(update, context):
     await update.effective_message.reply_text(
         "Kirim lokasi Anda saat ini untuk prakiraan BMKG di Indonesia.\n"
         "Gunakan tombol di bawah atau Lampiran → Lokasi → Kirim lokasi saat ini.\n"
+        "Titik peta atau tempat bernama yang dipilih dari menu Lokasi juga didukung.\n"
         "Lokasi dipakai sekali, diteruskan ke layanan pemetaan OpenStreetMap, "
         "dan tidak disimpan oleh aplikasi bot. Kirim lokasi statis, bukan live location.\n"
         "Permintaan berlaku 5 menit. /batal untuk membatalkan.",
@@ -333,17 +335,23 @@ async def handle_weather_location(update, context):
     if not update.message:
         return
     message = update.effective_message
+    location = message.location
+    if location is None and message.venue is not None:
+        location = message.venue.location
+    if location is None:
+        await message.reply_text("Lokasi tidak memiliki koordinat. Kirim melalui Lampiran → Lokasi.")
+        return
     requested = context.user_data.pop("weather_request", None)
     if requested is None or time.time() - requested > WEATHER_REQUEST_TTL:
         await message.reply_text("Kirim /cuaca terlebih dahulu, lalu bagikan lokasi baru.", reply_markup=ReplyKeyboardRemove())
         return
-    if message.date.timestamp() < int(requested) or message.location.live_period:
+    if message.date.timestamp() < int(requested) or location.live_period:
         await message.reply_text("Gunakan /cuaca lagi dan kirim lokasi statis yang baru, bukan live location.", reply_markup=ReplyKeyboardRemove())
         return
     status = await message.reply_text("Mencocokkan wilayah dan mengambil prakiraan BMKG...", reply_markup=ReplyKeyboardRemove())
     try:
         text = await context.application.bot_data["weather_service"].forecast(
-            message.location.latitude, message.location.longitude,
+            location.latitude, location.longitude,
         )
     except WeatherError as error:
         text = html.escape(str(error))
@@ -723,7 +731,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca)$"))
     application.add_handler(CommandHandler("cuaca", weather_command))
     application.add_handler(CommandHandler("batal", cancel_weather))
-    application.add_handler(MessageHandler(filters.LOCATION, handle_weather_location))
+    application.add_handler(MessageHandler(WEATHER_LOCATION_FILTER, handle_weather_location))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stalk", stalk_command))
     application.add_handler(CommandHandler("stats", stats_command))

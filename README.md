@@ -186,6 +186,8 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
 
 1. Kirim `/cuaca`, atau pilih **Cuaca → Minta prakiraan** dari menu utama.
 2. Tekan **Kirim lokasi saya** di Telegram mobile. Alternatif: Lampiran → Lokasi → Kirim lokasi saat ini.
+   Titik peta atau tempat bernama (venue) yang dipilih dari menu Lokasi juga didukung;
+   prakiraan mengikuti koordinat tempat yang dikirim.
 3. Bot mencocokkan kelurahan/desa lalu mengambil prakiraan dari API resmi BMKG.
 4. Jawaban berisi wilayah, prakiraan terdekat, suhu, kelembapan, angin, periode berikutnya,
    ringkasan periode tersedia hingga 3 hari, waktu produksi data, dan tautan sumber BMKG.
