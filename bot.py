@@ -36,7 +36,7 @@ from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
 from voice_stats import VoiceStatsStore
 from menus import menu_content, menu_commands
-from weather import WeatherError, WeatherService, match_region, region_code_pattern
+from weather import WeatherError, WeatherService, match_region, normalized_name, region_code_pattern
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -59,6 +59,10 @@ WEATHER_REQUEST_TTL = 300
 WEATHER_LOCATION_FILTER = filters.LOCATION | filters.VENUE
 WEATHER_MANUAL_LABEL = "Input wilayah manual"
 WEATHER_REGION_LABELS = ("provinsi", "kota/kabupaten", "kecamatan", "kelurahan/desa")
+WEATHER_PAGE_SIZE = 20
+WEATHER_NEXT = "Berikutnya →"
+WEATHER_PREVIOUS = "← Sebelumnya"
+WEATHER_ALL = "Semua wilayah"
 
 
 def is_local_file_error(error):
@@ -309,13 +313,13 @@ async def weather_command(update, context):
     context.user_data["weather_request"] = time.time()
     context.user_data.pop("weather_manual", None)
     await update.effective_message.reply_text(
-        "Pilih Input wilayah manual untuk mengetik provinsi, kota/kabupaten, kecamatan, dan kelurahan/desa.\n"
-        "Atau kirim lokasi Anda saat ini untuk prakiraan BMKG di Indonesia.\n"
-        "Gunakan tombol di bawah atau Lampiran → Lokasi → Kirim lokasi saat ini.\n"
-        "Titik peta atau tempat bernama yang dipilih dari menu Lokasi juga didukung.\n"
-        "Lokasi dipakai sekali, diteruskan ke layanan pemetaan OpenStreetMap, "
-        "dan tidak disimpan oleh aplikasi bot. Kirim lokasi statis, bukan live location.\n"
-        "Permintaan berlaku 5 menit. /batal untuk membatalkan.",
+        "🌦 <b>Cuaca Indonesia</b>\nPrakiraan resmi BMKG untuk wilayah Anda.\n\n"
+        "<b>Input wilayah manual</b>\nPilih provinsi, kota/kabupaten, kecamatan, lalu kelurahan/desa.\n\n"
+        "<b>Kirim lokasi saya</b>\nGunakan tombol atau Lampiran → Lokasi. Titik peta dan tempat bernama juga didukung.\n\n"
+        "Lokasi GPS diteruskan ke OpenStreetMap untuk pemetaan. Pilihan wilayah hanya dipakai sekali, "
+        "tanpa lokasi default tersimpan. Gunakan lokasi statis, bukan live location.\n"
+        "/batal untuk membatalkan · berlaku 5 menit.",
+        parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(
             [[WEATHER_MANUAL_LABEL], [KeyboardButton("Kirim lokasi saya", request_location=True)], ["/batal"]],
             resize_keyboard=True, one_time_keyboard=True,
@@ -326,17 +330,27 @@ async def weather_command(update, context):
 async def prompt_weather_region(message, state):
     level = len(state["selected"])
     label = WEATHER_REGION_LABELS[level]
-    rows = state["rows"]
-    names = [row["name"] for row in rows[:20]]
+    rows = state.get("search_rows", state["rows"])
+    pages = max(1, (len(rows) + WEATHER_PAGE_SIZE - 1) // WEATHER_PAGE_SIZE)
+    page = min(max(0, state.get("page", 0)), pages - 1)
+    state["page"] = page
+    names = [row["name"] for row in rows[page * WEATHER_PAGE_SIZE:(page + 1) * WEATHER_PAGE_SIZE]]
     parent = state["selected"][-1]["name"] if state["selected"] else "Indonesia"
-    text = f"Masukkan nama {label} di {parent}."
+    text = f"<b>Pilih {html.escape(label)} · langkah {level + 1}/4</b>\n{html.escape(parent)}\n\n"
+    text += "Pilih tombol atau ketik nama wilayah. Nama sebagian juga bisa untuk mencari."
     if level == 1:
-        text += " Gunakan awalan Kota atau Kabupaten bila namanya sama."
-    text += "\nKetik nama lengkap atau pilih tombol. Permintaan berlaku 5 menit. /batal untuk membatalkan."
-    if len(rows) > 20:
-        text += f"\nTombol menampilkan 20 dari {len(rows)} wilayah; nama lainnya tetap bisa diketik."
-    await message.reply_text(text, reply_markup=ReplyKeyboardMarkup(
-        [[name] for name in names] + [["/batal"]], resize_keyboard=True, one_time_keyboard=True,
+        text += " Contoh: <b>Depok</b> atau <b>Kota Depok</b>."
+    text += f"\nHalaman {page + 1}/{pages} · {len(rows)} pilihan"
+    text += "\n\n/batal untuk membatalkan · berlaku 5 menit sejak mulai."
+    keyboard = [names[index:index + 2] for index in range(0, len(names), 2)]
+    navigation = ([WEATHER_PREVIOUS] if page > 0 else []) + ([WEATHER_NEXT] if page < pages - 1 else [])
+    if navigation:
+        keyboard.append(navigation)
+    if "search_rows" in state:
+        keyboard.append([WEATHER_ALL])
+    keyboard.append(["/batal"])
+    await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(
+        keyboard, resize_keyboard=True, one_time_keyboard=True,
     ))
 
 
@@ -369,10 +383,28 @@ async def handle_weather_region_text(update, context):
         return
     level = len(state["selected"]) + 1
     parent = state["selected"][-1]["code"] if state["selected"] else ""
+    text = message.text.strip()
+    if text in {WEATHER_NEXT, WEATHER_PREVIOUS, WEATHER_ALL}:
+        if text == WEATHER_ALL:
+            state.pop("search_rows", None)
+            state["page"] = 0
+        else:
+            state["page"] = state.get("page", 0) + (1 if text == WEATHER_NEXT else -1)
+        await prompt_weather_region(message, state)
+        return
     try:
-        region = match_region(state["rows"], message.text.strip(), region_code_pattern(level, parent))
+        region = match_region(state["rows"], text, region_code_pattern(level, parent))
     except WeatherError:
-        await message.reply_text("Nama belum cocok secara unik. Periksa ejaan; untuk kota/kabupaten sertakan awalannya.")
+        query = normalized_name(text)
+        candidates = [row for row in state["rows"] if query and query in normalized_name(row["name"])]
+        state["page"] = 0
+        if candidates:
+            # Search is for suggestions only: even one partial match needs user selection.
+            state["search_rows"] = candidates
+            await message.reply_text("Ini pilihan yang sesuai pencarian Anda. Pilih nama lengkap untuk melanjutkan.")
+        else:
+            state.pop("search_rows", None)
+            await message.reply_text(f"Nama belum ditemukan di {state['selected'][-1]['name'] if state['selected'] else 'Indonesia'}. Coba ejaan lain atau pilih dari daftar.")
         await prompt_weather_region(message, state)
         return
     selected = state["selected"] + [region]
@@ -385,6 +417,8 @@ async def handle_weather_region_text(update, context):
             await message.reply_text(str(error), reply_markup=ReplyKeyboardRemove())
             return
         state["selected"], state["rows"] = selected, rows
+        state["page"] = 0
+        state.pop("search_rows", None)
         await prompt_weather_region(message, state)
         return
     # Consume the complete request before network I/O; never reuse the selected location.

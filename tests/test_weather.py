@@ -63,6 +63,19 @@ def test_old_or_mismatched_forecasts_are_rejected():
         weather.format_forecast(data, "99.99.99.9999", NOW)
 
 
+def test_readable_forecast_does_not_claim_current_observation():
+    data = forecast_data()
+    data["data"][0]["cuaca"][0][1]["wd"] = "SW"
+    text = weather.format_forecast(data, CODE, NOW, mapped=False)
+    assert "Barat Daya" in text
+    assert "Prakiraan terdekat" in text and "Prakiraan berikutnya" in text
+    assert "Hari ini" in text
+    assert "Rentang suhu dari periode yang masih tersedia" in text
+    assert "Produksi data BMKG" in text
+    assert "SEKARANG" not in text and "OpenStreetMap" not in text
+    assert len(text) < 4096
+
+
 def test_ambiguous_regency_does_not_guess():
     rows = [{"name": "Kota Bandung", "code": "32.73"}, {"name": "Kabupaten Bandung", "code": "32.04"}]
     with pytest.raises(weather.WeatherError):

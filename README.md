@@ -197,7 +197,12 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
    dan mengirim prakiraan. Alur manual tidak memanggil layanan pemetaan GPS.
 
 Contoh: **Sulawesi Selatan → Kota Makassar → Rappocini → Balla Parang**.
-Tombol menampilkan maksimal 20 saran per tahap; nama wilayah lain tetap bisa diketik.
+Tombol menampilkan 20 pilihan per halaman dalam dua kolom. Gunakan **Berikutnya / Sebelumnya**
+untuk melihat semua wilayah, termasuk Kota Depok di daftar Jawa Barat.
+Nama lengkap seperti `Depok` atau `Kota Depok` bisa diketik dari halaman mana saja.
+Nama sebagian seperti `Dep` menampilkan hasil pencarian; pilih nama lengkap untuk melanjutkan.
+Jika nama ambigu, bot menampilkan kandidat yang perlu dipilih. **Semua wilayah** mengembalikan
+daftar lengkap setelah pencarian. Setiap tahap tetap divalidasi terhadap wilayah induknya.
 Nama pilihan dan daftar saran hanya ada sementara di memori selama alur input,
 lalu dihapus saat selesai, gagal mengambil data, dibatalkan, atau kedaluwarsa terdeteksi.
 Setiap permintaan baru harus memilih wilayah lagi, tanpa lokasi default tersimpan.

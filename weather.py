@@ -187,6 +187,28 @@ def measurement(value, unit):
     return f"{value:g}{unit}"
 
 
+def condition_icon(description):
+    text = str(description).casefold()
+    if "petir" in text:
+        return "⛈"
+    if "hujan" in text:
+        return "🌧"
+    if "kabut" in text:
+        return "🌫"
+    if "cerah" in text and "berawan" in text:
+        return "⛅"
+    if "berawan" in text:
+        return "☁️"
+    if "cerah" in text:
+        return "☀️"
+    return "🌤"
+
+
+def wind_direction(value):
+    return {"N": "Utara", "NE": "Timur Laut", "E": "Timur", "SE": "Tenggara",
+            "S": "Selatan", "SW": "Barat Daya", "W": "Barat", "NW": "Barat Laut"}.get(value, value or "tidak tersedia")
+
+
 def format_forecast(data, code, now=None, mapped=True):
     now = now or datetime.now(UTC)
     location = data["lokasi"]
@@ -208,34 +230,37 @@ def format_forecast(data, code, now=None, mapped=True):
     escape = lambda value: html.escape(str(value))
     stamp = lambda value: utc_date(value).astimezone(tz).strftime("%d/%m %H:%M")
     first = future[0]
-    place = ", ".join(escape(location[key]) for key in ("desa", "kecamatan", "kotkab", "provinsi"))
-    lines = ["<b>Prakiraan Cuaca BMKG</b>", place, f"Waktu: {labels[tz_name]}", "",
-             f"<b>Prakiraan terdekat — {stamp(first['utc_datetime'])}</b>",
-             escape(first["weather_desc"]), f"Suhu: {measurement(first.get('t'), ' °C')}",
+    lines = ["🌦 <b>Prakiraan Cuaca BMKG</b>", "",
+             f"📍 <b>{escape(location['desa'])}, {escape(location['kecamatan'])}</b>",
+             f"{escape(location['kotkab'])}, {escape(location['provinsi'])}", "",
+             f"<b>Prakiraan terdekat</b> · {stamp(first['utc_datetime'])} {labels[tz_name]}",
+             f"{condition_icon(first['weather_desc'])} <b>{escape(first['weather_desc'])}</b>",
+             f"Suhu: {measurement(first.get('t'), ' °C')}",
              f"Kelembapan: {measurement(first.get('hu'), '%')}",
-             f"Angin: {measurement(first.get('ws'), ' km/jam')} dari {escape(first.get('wd') or 'tidak tersedia')}",
-             "", "<b>Periode berikutnya</b>"]
+             f"Angin: {measurement(first.get('ws'), ' km/jam')} dari {escape(wind_direction(first.get('wd')))}",
+             "", f"<b>Prakiraan berikutnya</b> · {labels[tz_name]}"]
     for row in future[1:8]:
-        lines.append(f"{stamp(row['utc_datetime'])}: {escape(row['weather_desc'])}, {measurement(row.get('t'), ' °C')}")
+        lines.append(f"{stamp(row['utc_datetime'])} · {condition_icon(row['weather_desc'])} {escape(row['weather_desc'])} · {measurement(row.get('t'), ' °C')}")
     if len(future) == 1:
         lines.append("Belum tersedia.")
     days = {}
     for row in future:
-        day = utc_date(row["utc_datetime"]).astimezone(tz).strftime("%d/%m")
+        day = utc_date(row["utc_datetime"]).astimezone(tz).date()
         days.setdefault(day, []).append(row)
-    lines.extend(["", "<b>Ringkasan periode yang masih tersedia</b>"])
+    lines.extend(["", "<b>Ringkasan harian</b>", "Rentang suhu dari periode yang masih tersedia."])
     for day, periods in list(days.items())[:3]:
         temperatures = [row["t"] for row in periods if isinstance(row.get("t"), (int, float)) and math.isfinite(row["t"])]
         conditions = list(dict.fromkeys(row["weather_desc"] for row in periods))
         temps = f"{min(temperatures):g}–{max(temperatures):g} °C" if temperatures else "suhu tidak tersedia"
-        lines.append(f"{day}: {escape(', '.join(conditions))}; {temps}")
-    lines.extend(["", f"Produksi data: {min(productions).astimezone(tz):%d/%m/%Y %H:%M} {labels[tz_name]}",
+        label = "Hari ini" if day == now.astimezone(tz).date() else "Besok" if day == now.astimezone(tz).date() + timedelta(days=1) else day.strftime("%d/%m")
+        lines.append(f"<b>{label} · {temps}</b>\n{escape(', '.join(conditions))}")
+    lines.extend(["", f"Produksi data BMKG: {min(productions).astimezone(tz):%d/%m/%Y %H:%M} {labels[tz_name]}",
                   'Sumber: <a href="https://data.bmkg.go.id/prakiraan-cuaca/">BMKG</a>',
                   f'<a href="https://www.bmkg.go.id/cuaca/prakiraan-cuaca/{code}">Prakiraan lengkap hingga 3 hari</a>',
-                  ('Pemetaan: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>; kode: <a href="https://wilayah.id">Wilayah.id</a>.'
-                   if mapped else 'Wilayah dipilih manual; kode: <a href="https://wilayah.id">Wilayah.id</a>.'),
-                  "", ("Prakiraan wilayah, bukan pengamatan real-time di titik GPS. Periksa nama wilayah di atas; pemetaan dapat meleset dekat batas wilayah."
-                         if mapped else "Prakiraan wilayah, bukan pengamatan real-time. Periksa nama wilayah yang dipilih di atas."),
+                  ('Peta: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · wilayah: <a href="https://wilayah.id">Wilayah.id</a>.'
+                   if mapped else 'Wilayah dipilih manual · <a href="https://wilayah.id">Wilayah.id</a>.'),
+                  "", ("<i>Prediksi wilayah, bukan pengamatan real-time. Periksa nama wilayah, terutama dekat perbatasan.</i>"
+                         if mapped else "<i>Prediksi wilayah, bukan pengamatan real-time.</i>"),
                   ("Untuk permintaan berikutnya, kirim /cuaca dan lokasi baru." if mapped else
                    "Untuk permintaan berikutnya, kirim /cuaca_manual dan pilih wilayah lagi.")])
     return "\n".join(lines)
