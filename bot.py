@@ -346,14 +346,17 @@ async def handle_weather_location(update, context):
             message.location.latitude, message.location.longitude,
         )
     except WeatherError as error:
-        await status.edit_text(str(error))
-        return
+        text = html.escape(str(error))
     except Exception as error:
         # Do not log exceptions/tracebacks containing geocoder URLs or coordinates.
         logger.warning("Weather request failed (%s)", type(error).__name__)
-        await status.edit_text("Prakiraan gagal diproses. Kirim /cuaca lagi nanti.")
-        return
-    await status.edit_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        text = "Prakiraan gagal diproses. Kirim /cuaca lagi nanti."
+    # Status carries ReplyKeyboardRemove; send a new message rather than editing it.
+    await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    try:
+        await status.delete()
+    except TelegramError:
+        logger.warning("Could not remove weather status message")
 
 
 async def show_menu(update, context, section):

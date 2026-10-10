@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from telegram.error import BadRequest
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["ALLOWED_TELEGRAM_USER_ID"] = "123"
@@ -123,7 +124,7 @@ def test_api_failures_are_safe(monkeypatch, options, expected):
 
 
 def telegram_context(user_id=123, chat_type="private"):
-    status = SimpleNamespace(edit_text=AsyncMock())
+    status = SimpleNamespace(edit_text=AsyncMock(side_effect=BadRequest("Message can't be edited")), delete=AsyncMock())
     message = SimpleNamespace(reply_text=AsyncMock(return_value=status), date=datetime.now(timezone.utc),
                               location=SimpleNamespace(latitude=-6.16472, longitude=106.84538, live_period=None))
     update = SimpleNamespace(effective_user=SimpleNamespace(id=user_id), effective_chat=SimpleNamespace(type=chat_type),
@@ -145,12 +146,39 @@ def test_each_request_requires_new_location_even_after_failure():
             if failure:
                 service.forecast.side_effect = weather.WeatherError("BMKG tidak tersedia")
             await bot.handle_weather_location(update, context)
+            expected = "BMKG tidak tersedia" if failure else "Prakiraan BMKG"
+            assert update.message.reply_text.call_args.args[0] == expected
             assert "weather_request" not in context.user_data
             calls = service.forecast.await_count
             await bot.handle_weather_location(update, context)
             assert service.forecast.await_count == calls
         assert context.user_data == {}
-        assert status.edit_text.call_args.args[0] == "BMKG tidak tersedia"
+        status.edit_text.assert_not_awaited()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [None, weather.WeatherError("BMKG <tidak tersedia>"), RuntimeError("internal")])
+@pytest.mark.parametrize("delete_fails", [False, True])
+def test_weather_reply_survives_uneditable_status_and_cleanup_failure(failure, delete_fails):
+    async def scenario():
+        update, context, service, status = telegram_context()
+        await bot.weather_command(update, context)
+        update.message.reply_text.reset_mock()
+        service.forecast.side_effect = failure
+        if delete_fails:
+            status.delete.side_effect = BadRequest("Message to delete not found")
+        await bot.handle_weather_location(update, context)
+        assert update.message.reply_text.await_count == 2  # status, then final reply
+        reply = update.message.reply_text.call_args
+        expected = ("Prakiraan BMKG" if failure is None else
+                    "BMKG &lt;tidak tersedia&gt;" if isinstance(failure, weather.WeatherError) else
+                    "Prakiraan gagal diproses. Kirim /cuaca lagi nanti.")
+        assert reply.args[0] == expected
+        assert reply.kwargs["parse_mode"] == "HTML"
+        assert reply.kwargs["disable_web_page_preview"] is True
+        status.edit_text.assert_not_awaited()
+        status.delete.assert_awaited_once()
+        assert "weather_request" not in context.user_data
     asyncio.run(scenario())
 
 
