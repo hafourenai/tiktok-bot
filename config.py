@@ -44,6 +44,8 @@ except ZoneInfoNotFoundError as error:
 VOICE_DATABASE_PATH = project_path(os.getenv("VOICE_DATABASE_PATH", "data/voice_stats.db"))
 VOICE_EXPORT_DIR = project_path(os.getenv("VOICE_EXPORT_DIR", "data/exports"))
 
+WEATHER_GEOCODER_URL = os.getenv("WEATHER_GEOCODER_URL", "https://nominatim.openstreetmap.org").strip()
+
 TIKTOK_FALLBACK_URL = os.getenv("TIKTOK_FALLBACK_URL", "https://snaptikhon.vercel.app/").strip()
 
 TIKTOK_URL_RE = re.compile(

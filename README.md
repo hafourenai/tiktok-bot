@@ -6,7 +6,8 @@ Bot meminta pilihan kualitas **Biasa** atau **HD**, menghapus file sementara set
 
 ## Fitur
 
-- `/start` atau `/menu` membuka pilihan **Downloader** dan **Discord**.
+- `/start` atau `/menu` membuka pilihan **Downloader**, **Discord**, dan **Cuaca**.
+- `/cuaca` meminta lokasi baru untuk prakiraan resmi BMKG di Indonesia; lokasi dipakai sekali per permintaan.
 - Menu command menyesuaikan kategori yang dipilih; `/help` membuka panduan kategori aktif.
 - Menu Discord menyediakan tombol statistik, hari ini, riwayat 7 hari, export bulan ini, dan penyimpanan.
 - Status download: menunggu slot, mengunduh, mencoba fallback bila diperlukan, mengirim (beserta ukuran file), dan selesai. Status berupa tahapan, bukan persentase.
@@ -180,6 +181,61 @@ Biarkan sesi Termux tetap berjalan selama bot digunakan.
 6. Tunggu bot mengirim video.
 7. Periksa folder `downloads/`; file temporary seharusnya terhapus.
 8. Kirim `/start` dari akun lain untuk memastikan akses ditolak.
+
+## Prakiraan Cuaca Indonesia
+
+1. Kirim `/cuaca`, atau pilih **Cuaca → Minta prakiraan** dari menu utama.
+2. Tekan **Kirim lokasi saya** di Telegram mobile. Alternatif: Lampiran → Lokasi → Kirim lokasi saat ini.
+3. Bot mencocokkan kelurahan/desa lalu mengambil prakiraan dari API resmi BMKG.
+4. Jawaban berisi wilayah, prakiraan terdekat, suhu, kelembapan, angin, periode berikutnya,
+   ringkasan periode tersedia hingga 3 hari, waktu produksi data, dan tautan sumber BMKG.
+5. Untuk mengecek lagi, ulangi `/cuaca` dan kirim lokasi baru. `/batal` membatalkan permintaan.
+
+Permintaan lokasi berlaku 5 menit. Bot hanya menerima satu pesan lokasi statis baru setelah
+permintaan; live location dan edit lokasi tidak digunakan. Permintaan juga selesai jika
+pemetaan/API gagal. Nama kota dalam `/cuaca Jakarta` tidak digunakan sebagai pengganti GPS:
+bot tetap meminta lokasi baru. Akses tetap terbatas pada DM pemilik bot.
+
+### Sumber dan ketepatan wilayah
+
+- **Cuaca:** [API resmi BMKG](https://data.bmkg.go.id/prakiraan-cuaca/),
+  `https://api.bmkg.go.id/publik/prakiraan-cuaca?adm4=...`.
+  BMKG menyediakan prakiraan 3 hari, interval 3 jam, diperbarui 2 kali sehari.
+  Bot menampilkan periode mendatang, menggunakan WIB/WITA/WIT sesuai wilayah,
+  dan menolak data dengan waktu produksi lebih dari 36 jam. Ringkasan suhu dihitung dari
+  periode yang masih tersedia, bukan klaim suhu minimum/maksimum satu hari penuh.
+- **Pemetaan GPS:** Nominatim/OpenStreetMap, dengan kode administratif dari
+  [Wilayah.id](https://wilayah.id). Ini hanya pemetaan; semua nilai cuaca berasal dari BMKG.
+  Nama provinsi, kabupaten/kota, kecamatan, dan kelurahan/desa harus cocok secara unik;
+  kode dan nama hasil BMKG diverifikasi lagi. Perbedaan versi kode wilayah antarpenyedia
+  dapat menyebabkan pemetaan ditolak. Tidak ada pencocokan nama samar atau fallback cuaca lain.
+- Reverse geocoding memakai objek peta terdekat; hasil yang berjarak lebih dari 2 km ditolak.
+  Ini **bukan verifikasi batas administratif berbasis poligon**. Periksa nama wilayah pada
+  jawaban, terutama di perbatasan. Data peta yang kurang lengkap akan menghasilkan pesan gagal.
+- Prakiraan adalah prediksi wilayah, bukan pengamatan real-time di titik GPS, dan tidak
+  dijamin 100% sesuai kondisi setempat.
+
+### Lokasi dan layanan pemetaan
+
+Koordinat dikirim ke layanan Nominatim untuk pemetaan saat permintaan diproses. Aplikasi bot
+tidak menyimpan koordinat ke database, file, cache, log, atau `user_data`; hanya waktu permintaan
+yang ditahan sementara sampai selesai/batal/kedaluwarsa terdeteksi. Riwayat pesan lokasi di
+Telegram dan kebijakan data penyedia layanan tetap terpisah dari penyimpanan aplikasi bot.
+
+Endpoint default adalah `https://nominatim.openstreetmap.org`. Penggunaan server publik
+mengikuti [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/):
+bot pribadi ini hanya melakukan lookup saat diminta, mengantrekan permintaan dengan jarak
+minimal 1,1 detik, mengirim User-Agent aplikasi, dan menampilkan atribusi OpenStreetMap.
+Tidak ada cron, lookup massal, atau pemantauan lokasi. Jangan jalankan banyak instance yang
+mengakibatkan gabungan trafik melebihi 1 permintaan/detik. Endpoint dapat diganti dengan
+layanan Nominatim sendiri/kompatibel melalui `.env`, tanpa perubahan kode:
+
+```env
+WEATHER_GEOCODER_URL=https://nominatim.openstreetmap.org
+```
+
+Tidak diperlukan API key untuk konfigurasi default. Setelah memperbarui project, pasang
+dependensi dengan `python -m pip install -r requirements.txt`, lalu restart bot.
 
 ## Monitoring Voice Discord
 

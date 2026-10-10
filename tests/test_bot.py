@@ -64,6 +64,7 @@ def test_menu_navigation_updates_commands():
         await show_menu(update, context, "home")
         keyboard = message.reply_text.call_args.kwargs["reply_markup"]
         assert [button.text for button in keyboard.inline_keyboard[0]] == ["Downloader", "Discord"]
+        assert keyboard.inline_keyboard[1][0].callback_data == "menu:cuaca"
         update.callback_query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
         await show_menu(update, context, "discord")
         commands = context.bot.set_my_commands.call_args.args[0]
@@ -73,6 +74,9 @@ def test_menu_navigation_updates_commands():
         commands = context.bot.set_my_commands.call_args.args[0]
         assert "stalk" in [item.command for item in commands]
         assert "stats" not in [item.command for item in commands]
+        await show_menu(update, context, "cuaca")
+        commands = context.bot.set_my_commands.call_args.args[0]
+        assert {"cuaca", "batal"} <= {item.command for item in commands}
 
     asyncio.run(scenario())
 

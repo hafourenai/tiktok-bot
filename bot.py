@@ -4,12 +4,14 @@ import html
 import logging
 import os
 import re
+import time
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup,
+                      KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update)
 from telegram.constants import ParseMode
 from telegram.error import TelegramError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
@@ -27,12 +29,14 @@ from config import (
     TIKTOK_URL_RE,
     VOICE_DATABASE_PATH,
     VOICE_EXPORT_DIR,
+    WEATHER_GEOCODER_URL,
     YOUTUBE_URL_RE,
 )
 from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
 from voice_stats import VoiceStatsStore
 from menus import menu_content, menu_commands
+from weather import WeatherError, WeatherService
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -51,6 +55,7 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 
 DOWNLOAD_LIMIT = asyncio.Semaphore(2)
 UTC = timezone.utc
+WEATHER_REQUEST_TTL = 300
 
 
 def is_local_file_error(error):
@@ -294,6 +299,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await show_menu(update, context, "home")
 
 
+async def weather_command(update, context):
+    if not is_allowed(update):
+        await deny(update)
+        return
+    context.user_data["weather_request"] = time.time()
+    await update.effective_message.reply_text(
+        "Kirim lokasi Anda saat ini untuk prakiraan BMKG di Indonesia.\n"
+        "Gunakan tombol di bawah atau Lampiran → Lokasi → Kirim lokasi saat ini.\n"
+        "Lokasi dipakai sekali, diteruskan ke layanan pemetaan OpenStreetMap, "
+        "dan tidak disimpan oleh aplikasi bot. Kirim lokasi statis, bukan live location.\n"
+        "Permintaan berlaku 5 menit. /batal untuk membatalkan.",
+        reply_markup=ReplyKeyboardMarkup(
+            [[KeyboardButton("Kirim lokasi saya", request_location=True)], ["/batal"]],
+            resize_keyboard=True, one_time_keyboard=True,
+        ),
+    )
+
+
+async def cancel_weather(update, context):
+    if not is_allowed(update):
+        await deny(update)
+        return
+    context.user_data.pop("weather_request", None)
+    await update.effective_message.reply_text("Permintaan cuaca dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+
+async def handle_weather_location(update, context):
+    if not is_allowed(update):
+        await deny(update)
+        return
+    # Edited/live updates cannot fulfill a new request using an old location message.
+    if not update.message:
+        return
+    message = update.effective_message
+    requested = context.user_data.pop("weather_request", None)
+    if requested is None or time.time() - requested > WEATHER_REQUEST_TTL:
+        await message.reply_text("Kirim /cuaca terlebih dahulu, lalu bagikan lokasi baru.", reply_markup=ReplyKeyboardRemove())
+        return
+    if message.date.timestamp() < int(requested) or message.location.live_period:
+        await message.reply_text("Gunakan /cuaca lagi dan kirim lokasi statis yang baru, bukan live location.", reply_markup=ReplyKeyboardRemove())
+        return
+    status = await message.reply_text("Mencocokkan wilayah dan mengambil prakiraan BMKG...", reply_markup=ReplyKeyboardRemove())
+    try:
+        text = await context.application.bot_data["weather_service"].forecast(
+            message.location.latitude, message.location.longitude,
+        )
+    except WeatherError as error:
+        await status.edit_text(str(error))
+        return
+    except Exception as error:
+        # Do not log exceptions/tracebacks containing geocoder URLs or coordinates.
+        logger.warning("Weather request failed (%s)", type(error).__name__)
+        await status.edit_text("Prakiraan gagal diproses. Kirim /cuaca lagi nanti.")
+        return
+    await status.edit_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
 async def show_menu(update, context, section):
     if not is_allowed(update):
         if update.callback_query:
@@ -301,6 +363,8 @@ async def show_menu(update, context, section):
         else:
             await deny(update)
         return
+    if context.user_data.pop("weather_request", None) is not None:
+        await update.effective_message.reply_text("Permintaan lokasi dibatalkan.", reply_markup=ReplyKeyboardRemove())
     context.user_data["menu"] = section
     text, keyboard = menu_content(section)
     if update.callback_query:
@@ -327,7 +391,7 @@ async def action_callback(update, context):
     await update.callback_query.answer()
     context.args = []
     handlers = {"stats": stats_command, "today": today_command, "history": history_command,
-                "export": export_command, "storage": storage_command}
+                "export": export_command, "storage": storage_command, "cuaca": weather_command}
     await handlers[update.callback_query.data.split(":", 1)[1]](update, context)
 
 
@@ -439,6 +503,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     is_youtube = is_youtube_url(text)
     
     if not is_tiktok and not is_youtube:
+        requested = context.user_data.get("weather_request")
+        if requested is not None:
+            if time.time() - requested > WEATHER_REQUEST_TTL:
+                context.user_data.pop("weather_request", None)
+                await message.reply_text("Permintaan lokasi kedaluwarsa. Kirim /cuaca lagi.", reply_markup=ReplyKeyboardRemove())
+            else:
+                await message.reply_text("Gunakan tombol Kirim lokasi saya atau Lampiran → Lokasi. /batal untuk membatalkan.")
+            return
         await message.reply_text(
             "❌ <b>URL tidak valid</b>\n\n"
             "Silakan kirim link TikTok atau YouTube yang dapat diakses secara publik.",
@@ -639,12 +711,16 @@ def main() -> None:
     )
     store = VoiceStatsStore(VOICE_DATABASE_PATH, TIMEZONE)
     application.bot_data["voice_store"] = store
+    application.bot_data["weather_service"] = WeatherService(WEATHER_GEOCODER_URL)
     application.bot_data["discord_monitor"] = DiscordVoiceMonitor(store, DISCORD_GUILD_ID)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler(["downloader", "discord"], category_command))
-    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord)$"))
-    application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage)$"))
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca)$"))
+    application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca)$"))
+    application.add_handler(CommandHandler("cuaca", weather_command))
+    application.add_handler(CommandHandler("batal", cancel_weather))
+    application.add_handler(MessageHandler(filters.LOCATION, handle_weather_location))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stalk", stalk_command))
     application.add_handler(CommandHandler("stats", stats_command))

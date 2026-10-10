@@ -27,10 +27,20 @@ def menu_content(section: str):
              InlineKeyboardButton("Export bulan ini", callback_data="action:export")],
             [InlineKeyboardButton("Penyimpanan", callback_data="action:storage")], back,
         ]
+    elif section == "cuaca":
+        text = (
+            "<b>Cuaca Indonesia — BMKG</b>\n\n"
+            "/cuaca — minta prakiraan dengan lokasi baru\n"
+            "/batal — batalkan permintaan lokasi\n\n"
+            "Prakiraan kelurahan/desa dari BMKG, per 3 jam. "
+            "Lokasi hanya dipakai untuk satu permintaan."
+        )
+        rows = [[InlineKeyboardButton("Minta prakiraan", callback_data="action:cuaca")], back]
     else:
         text = "<b>Menu utama</b>\n\nPilih fitur yang ingin digunakan."
         rows = [[InlineKeyboardButton("Downloader", callback_data="menu:downloader"),
-                 InlineKeyboardButton("Discord", callback_data="menu:discord")]]
+                 InlineKeyboardButton("Discord", callback_data="menu:discord")],
+                [InlineKeyboardButton("Cuaca", callback_data="menu:cuaca")]]
     return text, InlineKeyboardMarkup(rows)
 
 
@@ -45,6 +55,9 @@ def menu_commands(section: str):
             ("storage", "Informasi penyimpanan"), ("delete", "Hapus riwayat"),
             ("confirm_delete", "Konfirmasi hapus riwayat"),
         ]]
+    elif section == "cuaca":
+        commands += [BotCommand("cuaca", "Prakiraan BMKG dengan lokasi baru"), BotCommand("batal", "Batalkan permintaan lokasi")]
     else:
-        commands += [BotCommand("downloader", "Menu Downloader"), BotCommand("discord", "Menu Discord")]
+        commands += [BotCommand("downloader", "Menu Downloader"), BotCommand("discord", "Menu Discord"),
+                     BotCommand("cuaca", "Prakiraan cuaca BMKG")]
     return commands + [BotCommand("help", "Bantuan menu aktif")]
