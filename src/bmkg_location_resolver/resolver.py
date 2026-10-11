@@ -85,7 +85,7 @@ class WeatherService:
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise WeatherError("Daftar wilayah belum tersedia. Coba /cuaca_manual lagi nanti.") from None
 
-    async def forecast_for_regions(self, selected):
+    async def forecast_for_regions(self, selected, *, structured=False):
         try:
             if len(selected) != 4:
                 raise ValueError
@@ -105,7 +105,8 @@ class WeatherService:
                     response.raise_for_status()
                     data = response.json()
             validate_forecast_region(data, parent, [region["name"] for region in selected])
-            return format_forecast(data, parent, mapped=False)
+            rendered = format_forecast(data, parent, mapped=False)
+            return Forecast(code=parent, location=dict(data["lokasi"]), data=data, html=rendered) if structured else rendered
         except WeatherError:
             raise
         except httpx.HTTPError:

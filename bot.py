@@ -39,6 +39,16 @@ from menus import menu_content, menu_commands
 from bmkg_location_resolver import WeatherError, WeatherService, RegionSelectionRequired
 from bmkg_location_resolver.resolver import match_region, normalized_name, region_code_pattern
 from bmkg_location_resolver.telegram import coordinates_from_message
+from weather_card import generate_weather_card
+from converter import (
+    SUPPORTED_EXTENSIONS,
+    convert_pdf_to_docx,
+    convert_pdf_to_xlsx,
+    convert_pdf_to_pptx,
+    convert_pdf_to_images,
+    convert_image_to_pdf,
+    convert_office_to_pdf,
+)
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -454,7 +464,18 @@ async def weather_region_callback(update, context):
         context.user_data.pop("weather_manual", None)
         await query.edit_message_text("Mengambil prakiraan BMKG untuk wilayah pilihan...")
         try:
-            text = await service.forecast_for_regions(selected)
+            forecast_obj = await service.forecast_for_regions(selected, structured=True)
+            card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
+            await query.message.reply_photo(
+                photo=card_buf,
+                caption=f"🌦 <b>Prakiraan Cuaca BMKG</b>\n📍 <b>{forecast_obj.location.get('desa')}, {forecast_obj.location.get('kecamatan')}</b>\n{forecast_obj.location.get('kotkab')}, {forecast_obj.location.get('provinsi')}",
+                parse_mode=ParseMode.HTML,
+            )
+            try:
+                await query.message.delete()
+            except TelegramError:
+                pass
+            return
         except WeatherError as error:
             text = html.escape(str(error))
         except Exception as error:
@@ -515,9 +536,20 @@ async def handle_weather_location(update, context):
         return
     status = await message.reply_text("Mencocokkan wilayah dan mengambil prakiraan BMKG...", reply_markup=ReplyKeyboardRemove())
     try:
-        text = await context.application.bot_data["weather_service"].forecast(
-            location.latitude, location.longitude,
+        forecast_obj = await context.application.bot_data["weather_service"].forecast(
+            location.latitude, location.longitude, structured=True,
         )
+        card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
+        await message.reply_photo(
+            photo=card_buf,
+            caption=f"🌦 <b>Prakiraan Cuaca BMKG</b>\n📍 <b>{forecast_obj.location.get('desa')}, {forecast_obj.location.get('kecamatan')}</b>\n{forecast_obj.location.get('kotkab')}, {forecast_obj.location.get('provinsi')}",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            await status.delete()
+        except TelegramError:
+            pass
+        return
     except RegionSelectionRequired as error:
         state = {"started": time.time(), "selected": error.selected, "rows": error.candidates}
         context.user_data["weather_manual"] = state
@@ -560,6 +592,162 @@ async def show_menu(update, context, section):
     else:
         await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
     await context.bot.set_my_commands(menu_commands(section), scope=BotCommandScopeChat(chat_id=ALLOWED_USER_ID))
+
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_allowed(update):
+        await deny(update)
+        return
+
+    doc = update.effective_message.document
+    if not doc:
+        return
+
+    file_name = doc.file_name or "document"
+    ext = os.path.splitext(file_name)[1].lower()
+
+    if ext not in SUPPORTED_EXTENSIONS:
+        await update.effective_message.reply_text(
+            f"⚠️ Format file <code>{ext}</code> belum didukung untuk konversi.\n\n"
+            "Format yang didukung: <b>PDF, DOCX, XLSX, PPTX, JPG, PNG</b>.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    file_id = doc.file_id
+    options = SUPPORTED_EXTENSIONS[ext]
+
+    context.user_data[f"file_{file_id}"] = {
+        "file_id": file_id,
+        "file_name": file_name,
+        "ext": ext,
+    }
+
+    labels = {
+        "docx": "📝 Word (.docx)",
+        "xlsx": "📊 Excel (.xlsx)",
+        "pptx": "📽️ PowerPoint (.pptx)",
+        "images": "🖼️ Ekstrak Gambar",
+        "pdf": "📄 Convert to PDF",
+    }
+
+    buttons = [
+        [InlineKeyboardButton(labels.get(target, target.upper()), callback_data=f"convert:{file_id}:{target}")]
+        for target in options
+    ]
+
+    await update.effective_message.reply_text(
+        f"📄 <b>File Diterima:</b> <code>{file_name}</code>\n"
+        f"Ukuran: {round(doc.file_size / 1024, 1)} KB\n\n"
+        "Pilih format tujuan konversi di bawah ini:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def handle_photo_conversion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_allowed(update):
+        await deny(update)
+        return
+
+    photos = update.effective_message.photo
+    if not photos:
+        return
+
+    photo = photos[-1]
+    file_id = photo.file_id
+
+    context.user_data[f"file_{file_id}"] = {
+        "file_id": file_id,
+        "file_name": f"image_{file_id[:8]}.jpg",
+        "ext": ".jpg",
+    }
+
+    buttons = [
+        [InlineKeyboardButton("📄 Convert Foto ke PDF", callback_data=f"convert:{file_id}:pdf")]
+    ]
+
+    await update.effective_message.reply_text(
+        "🖼️ <b>Foto Diterima!</b> Ingin jadikan file PDF?",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split(":", 2)
+    if len(parts) != 3:
+        return
+
+    _, file_id, target = parts
+    file_info = context.user_data.get(f"file_{file_id}")
+    if not file_info:
+        await query.edit_message_text("⚠️ Sesi konversi sudah kedaluwarsa. Silakan kirim file lagi.")
+        return
+
+    status = await query.edit_message_text(f"⏳ Sedang mengonversi ke <b>{target.upper()}</b>...", parse_mode=ParseMode.HTML)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_file_path = os.path.join(tmp_dir, file_info["file_name"])
+        try:
+            tg_file = await context.bot.get_file(file_id)
+            await tg_file.download_to_drive(input_file_path)
+
+            base_stem = Path(file_info["file_name"]).stem
+            ext = file_info["ext"]
+
+            if ext == ".pdf":
+                if target == "docx":
+                    out_path = os.path.join(tmp_dir, f"{base_stem}.docx")
+                    await asyncio.to_thread(convert_pdf_to_docx, input_file_path, out_path)
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=open(out_path, "rb"),
+                        caption=f"✅ Berhasil dikonversi ke Word (.docx)",
+                    )
+                elif target == "xlsx":
+                    out_path = os.path.join(tmp_dir, f"{base_stem}.xlsx")
+                    await asyncio.to_thread(convert_pdf_to_xlsx, input_file_path, out_path)
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=open(out_path, "rb"),
+                        caption=f"✅ Berhasil diekstrak ke Excel (.xlsx)",
+                    )
+                elif target == "pptx":
+                    out_path = os.path.join(tmp_dir, f"{base_stem}.pptx")
+                    await asyncio.to_thread(convert_pdf_to_pptx, input_file_path, out_path)
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=open(out_path, "rb"),
+                        caption=f"✅ Berhasil dikonversi ke PowerPoint (.pptx)",
+                    )
+                elif target == "images":
+                    imgs = await asyncio.to_thread(convert_pdf_to_images, input_file_path, tmp_dir)
+                    for img_p in imgs[:10]:
+                        await context.bot.send_document(chat_id=update.effective_chat.id, document=open(img_p, "rb"))
+            elif ext in [".jpg", ".jpeg", ".png"]:
+                out_path = os.path.join(tmp_dir, f"{base_stem}.pdf")
+                await asyncio.to_thread(convert_image_to_pdf, input_file_path, out_path)
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=open(out_path, "rb"),
+                    caption=f"✅ Berhasil dikonversi ke PDF",
+                )
+            elif ext in [".docx", ".xlsx", ".pptx"]:
+                out_path = await asyncio.to_thread(convert_office_to_pdf, input_file_path, tmp_dir)
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=open(out_path, "rb"),
+                    caption=f"✅ Berhasil dikonversi ke PDF",
+                )
+
+            await status.delete()
+        except Exception as err:
+            logger.error("Conversion failed: %s", err, exc_info=True)
+            await status.edit_text(f"❌ Gagal melakukan konversi: {html.escape(str(err))}")
 
 
 async def category_command(update, context):
@@ -909,14 +1097,17 @@ def main() -> None:
     application.bot_data["discord_monitor"] = DiscordVoiceMonitor(store, DISCORD_GUILD_ID)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
-    application.add_handler(CommandHandler(["downloader", "discord"], category_command))
-    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca)$"))
+    application.add_handler(CommandHandler(["downloader", "discord", "cuaca", "converter"], category_command))
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca|converter)$"))
     application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca|cuaca_manual)$"))
+    application.add_handler(CallbackQueryHandler(convert_callback, pattern=r"^convert:"))
     application.add_handler(CallbackQueryHandler(weather_region_callback, pattern=r"^wr_"))
     application.add_handler(CommandHandler("cuaca", weather_command))
     application.add_handler(CommandHandler("cuaca_manual", weather_manual_command))
     application.add_handler(CommandHandler("batal", cancel_weather))
     application.add_handler(MessageHandler(WEATHER_LOCATION_FILTER, handle_weather_location))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_conversion))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stalk", stalk_command))
     application.add_handler(CommandHandler("stats", stats_command))
