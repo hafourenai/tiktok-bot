@@ -1,5 +1,28 @@
 # Telegram Video Downloader Bot
 
+## Package resolver cuaca
+
+Resolver kini berada di `src/bmkg_location_resolver/` sebagai package Python
+`bmkg-location-resolver` versi 0.1.0. Dokumentasi API dan build:
+[docs/resolver.md](docs/resolver.md).
+
+Untuk memperbarui bot, jalankan dari root repository dengan virtual environment aktif:
+
+```sh
+python -m pip install -r requirements.txt
+python bot.py
+```
+
+Untuk menggunakan resolver saja di aplikasi lain: `python -m pip install .` dari
+repository ini, atau pasang wheel di `dist/` setelah `python -m build`.
+Package **belum diterbitkan ke PyPI**, sehingga `pip install bmkg-location-resolver`
+tanpa path belum menjadi metode instalasi yang disediakan project ini.
+
+Share location biasa dan venue didukung oleh adapter terpisah. Jika nama tingkat
+administrasi GPS hilang/tidak cocok, bot meneruskan ke pilihan wilayah pada tingkat
+tersebut; induk yang sudah cocok tidak perlu diisi ulang. Koordinat tidak disimpan
+pada state pilihan. `/batal` membersihkan permintaan seperti alur manual.
+
 Bot Telegram pribadi untuk mengunduh video TikTok dan YouTube publik serta mengirimkannya kembali kepada satu Telegram user yang diizinkan.
 
 Bot meminta pilihan kualitas **Biasa** atau **HD**, menghapus file sementara setelah selesai, dan membatasi download bersamaan agar cocok untuk Termux.
@@ -409,8 +432,23 @@ Coba kualitas `Biasa`, gunakan jaringan yang stabil, atau turunkan `MAX_FILE_SIZ
 
 ```text
 bot_honey/
-├── bot.py
+├── pyproject.toml              # Metadata, dependensi, build package
+├── src/
+│   └── bmkg_location_resolver/
+│       ├── __init__.py         # Public API
+│       ├── resolver.py         # GPS, wilayah dan validasi BMKG
+│       ├── models.py           # Coordinates dan Forecast
+│       ├── exceptions.py       # Error dan pilihan wilayah lanjutan
+│       └── telegram.py         # Adapter location/venue tanpa dependency SDK
+├── docs/
+│   └── resolver.md             # Instalasi dan penggunaan package
+├── bot.py                     # Entry point aplikasi Telegram
+├── weather.py                 # Compatibility import untuk integrasi lama
 ├── config.py
+├── menus.py
+├── discord_voice.py
+├── voice_stats.py
+├── voice_export.py
 ├── downloader.py
 ├── tiktok_api_bridge.js
 ├── youtube_api_dl.js
@@ -420,11 +458,10 @@ bot_honey/
 ├── package-lock.json
 ├── .env.example
 ├── .gitignore
-├── downloads/
-│   └── .gitkeep
-├── tests/
-│   ├── test_bot.py
-│   └── test_youtube.py
+├── data/                      # Database runtime (bukan isi wheel)
+├── downloads/                 # File sementara
+├── dist/                      # Wheel/sdist hasil build, diabaikan Git
+├── tests/                     # Regresi bot dan package
 └── README.md
 ```
 

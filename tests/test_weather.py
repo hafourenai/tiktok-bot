@@ -153,7 +153,7 @@ def test_full_mapping_and_bmkg_request(monkeypatch):
 
 
 @pytest.mark.parametrize("options,expected", [({"country": "sg"}, "Indonesia"),
-                                             ({"missing_level": True}, "dicocokkan"),
+                                             ({"missing_level": True}, "Pilih wilayah"),
                                              ({"mismatch": True}, "sesuai"),
                                              ({"fail": True}, "tidak tersedia")])
 def test_api_failures_are_safe(monkeypatch, options, expected):

@@ -36,7 +36,9 @@ from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
 from voice_stats import VoiceStatsStore
 from menus import menu_content, menu_commands
-from weather import WeatherError, WeatherService, match_region, normalized_name, region_code_pattern
+from bmkg_location_resolver import WeatherError, WeatherService, RegionSelectionRequired
+from bmkg_location_resolver.resolver import match_region, normalized_name, region_code_pattern
+from bmkg_location_resolver.telegram import coordinates_from_message
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -458,24 +460,33 @@ async def handle_weather_location(update, context):
     if "weather_manual" in context.user_data:
         await message.reply_text("Anda sedang mengisi wilayah manual. Ketik nama wilayah yang diminta, atau /cuaca untuk memakai GPS.")
         return
-    location = message.location
-    if location is None and message.venue is not None:
-        location = message.venue.location
-    if location is None:
-        await message.reply_text("Lokasi tidak memiliki koordinat. Kirim melalui Lampiran → Lokasi.")
-        return
     requested = context.user_data.pop("weather_request", None)
     if requested is None or time.time() - requested > WEATHER_REQUEST_TTL:
         await message.reply_text("Kirim /cuaca terlebih dahulu, lalu bagikan lokasi baru.", reply_markup=ReplyKeyboardRemove())
         return
-    if message.date.timestamp() < int(requested) or location.live_period:
+    if message.date.timestamp() < int(requested):
         await message.reply_text("Gunakan /cuaca lagi dan kirim lokasi statis yang baru, bukan live location.", reply_markup=ReplyKeyboardRemove())
+        return
+    try:
+        location = coordinates_from_message(message)
+    except WeatherError as error:
+        await message.reply_text(str(error) + " Kirim /cuaca untuk mencoba lagi.", reply_markup=ReplyKeyboardRemove())
         return
     status = await message.reply_text("Mencocokkan wilayah dan mengambil prakiraan BMKG...", reply_markup=ReplyKeyboardRemove())
     try:
         text = await context.application.bot_data["weather_service"].forecast(
             location.latitude, location.longitude,
         )
+    except RegionSelectionRequired as error:
+        state = {"started": time.time(), "selected": error.selected, "rows": error.candidates}
+        context.user_data["weather_manual"] = state
+        await message.reply_text("Lokasi berhasil dibaca. Data peta belum lengkap/cocok; pilih wilayah berikut agar prakiraan tepat.")
+        await prompt_weather_region(message, state)
+        try:
+            await status.delete()
+        except TelegramError:
+            logger.warning("Could not remove weather status message")
+        return
     except WeatherError as error:
         text = html.escape(str(error))
     except Exception as error:
