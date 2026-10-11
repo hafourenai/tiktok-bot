@@ -40,7 +40,10 @@ def test_gps_fallback_continues_at_missing_level_without_retaining_coordinates()
         assert state["rows"] == candidates
         assert "weather_request" not in context.user_data
         assert "latitude" not in state and "longitude" not in state
-        assert "langkah 2/4" in update.message.reply_text.call_args.args[0]
+        # The inline menu message is sent via reply_text; check it contains "langkah 2/4"
+        reply_calls = update.message.reply_text.call_args_list
+        region_text = [c.args[0] for c in reply_calls if "langkah" in c.args[0]]
+        assert region_text and "langkah 2/4" in region_text[0]
         await bot.cancel_weather(update, context)
         assert context.user_data == {}
     asyncio.run(scenario())

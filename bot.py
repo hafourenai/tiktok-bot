@@ -62,9 +62,10 @@ WEATHER_LOCATION_FILTER = filters.LOCATION | filters.VENUE
 WEATHER_MANUAL_LABEL = "Input wilayah manual"
 WEATHER_REGION_LABELS = ("provinsi", "kota/kabupaten", "kecamatan", "kelurahan/desa")
 WEATHER_PAGE_SIZE = 20
-WEATHER_NEXT = "Berikutnya →"
-WEATHER_PREVIOUS = "← Sebelumnya"
-WEATHER_ALL = "Semua wilayah"
+WEATHER_NEXT = "wr_next"
+WEATHER_PREVIOUS = "wr_prev"
+WEATHER_ALL = "wr_all"
+WEATHER_CANCEL = "wr_cancel"
 
 
 def is_local_file_error(error):
@@ -329,31 +330,46 @@ async def weather_command(update, context):
     )
 
 
-async def prompt_weather_region(message, state):
+def _build_weather_region_content(state):
+    """Build text and InlineKeyboardMarkup for the current weather region step."""
     level = len(state["selected"])
     label = WEATHER_REGION_LABELS[level]
     rows = state.get("search_rows", state["rows"])
     pages = max(1, (len(rows) + WEATHER_PAGE_SIZE - 1) // WEATHER_PAGE_SIZE)
     page = min(max(0, state.get("page", 0)), pages - 1)
     state["page"] = page
-    names = [row["name"] for row in rows[page * WEATHER_PAGE_SIZE:(page + 1) * WEATHER_PAGE_SIZE]]
+    items = rows[page * WEATHER_PAGE_SIZE:(page + 1) * WEATHER_PAGE_SIZE]
     parent = state["selected"][-1]["name"] if state["selected"] else "Indonesia"
     text = f"<b>Pilih {html.escape(label)} · langkah {level + 1}/4</b>\n{html.escape(parent)}\n\n"
-    text += "Pilih tombol atau ketik nama wilayah. Nama sebagian juga bisa untuk mencari."
-    if level == 1:
-        text += " Contoh: <b>Depok</b> atau <b>Kota Depok</b>."
+    text += "Pilih wilayah dari tombol di bawah."
     text += f"\nHalaman {page + 1}/{pages} · {len(rows)} pilihan"
-    text += "\n\n/batal untuk membatalkan · berlaku 5 menit sejak mulai."
-    keyboard = [names[index:index + 2] for index in range(0, len(names), 2)]
-    navigation = ([WEATHER_PREVIOUS] if page > 0 else []) + ([WEATHER_NEXT] if page < pages - 1 else [])
+    text += "\n\nBerlaku 5 menit sejak mulai."
+    keyboard = []
+    for index in range(0, len(items), 2):
+        row_buttons = []
+        for item in items[index:index + 2]:
+            row_buttons.append(InlineKeyboardButton(item["name"], callback_data=f"wr_sel:{item['code']}"))
+        keyboard.append(row_buttons)
+    navigation = []
+    if page > 0:
+        navigation.append(InlineKeyboardButton("← Sebelumnya", callback_data=WEATHER_PREVIOUS))
+    if page < pages - 1:
+        navigation.append(InlineKeyboardButton("Berikutnya →", callback_data=WEATHER_NEXT))
     if navigation:
         keyboard.append(navigation)
     if "search_rows" in state:
-        keyboard.append([WEATHER_ALL])
-    keyboard.append(["/batal"])
-    await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(
-        keyboard, resize_keyboard=True, one_time_keyboard=True,
-    ))
+        keyboard.append([InlineKeyboardButton("Semua wilayah", callback_data=WEATHER_ALL)])
+    keyboard.append([InlineKeyboardButton("❌ Batal", callback_data=WEATHER_CANCEL)])
+    return text, InlineKeyboardMarkup(keyboard)
+
+
+async def prompt_weather_region(message, state, *, edit=False):
+    text, markup = _build_weather_region_content(state)
+    if edit:
+        await message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    else:
+        sent = await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        state["menu_message_id"] = sent.message_id
 
 
 async def weather_manual_command(update, context):
@@ -370,74 +386,90 @@ async def weather_manual_command(update, context):
         return
     state = {"started": time.time(), "selected": [], "rows": rows}
     context.user_data["weather_manual"] = state
+    await update.effective_message.reply_text("Memuat daftar provinsi...", reply_markup=ReplyKeyboardRemove())
     await prompt_weather_region(update.effective_message, state)
 
 
-async def handle_weather_region_text(update, context):
-    message = update.effective_message
-    state = context.user_data["weather_manual"]
+async def weather_region_callback(update, context):
+    """Handle inline button presses for manual weather region selection."""
+    query = update.callback_query
+    if not is_allowed(update):
+        await query.answer("Akses ditolak.", show_alert=True)
+        return
+    await query.answer()
+    state = context.user_data.get("weather_manual")
+    if state is None:
+        await query.edit_message_text("Sesi cuaca sudah berakhir. Kirim /cuaca_manual untuk mulai lagi.")
+        return
     if time.time() - state["started"] > WEATHER_REQUEST_TTL:
         context.user_data.pop("weather_manual", None)
-        await message.reply_text("Permintaan wilayah kedaluwarsa. Kirim /cuaca_manual lagi.", reply_markup=ReplyKeyboardRemove())
+        await query.edit_message_text("Permintaan wilayah kedaluwarsa. Kirim /cuaca_manual lagi.")
         return
-    if not update.message or message.date.timestamp() < int(state["started"]):
-        await message.reply_text("Kirim nama wilayah sebagai pesan baru.")
+    data = query.data
+    if data == WEATHER_CANCEL:
+        context.user_data.pop("weather_manual", None)
+        await query.edit_message_text("Permintaan cuaca dibatalkan.")
         return
-    level = len(state["selected"]) + 1
-    parent = state["selected"][-1]["code"] if state["selected"] else ""
-    text = message.text.strip()
-    if text in {WEATHER_NEXT, WEATHER_PREVIOUS, WEATHER_ALL}:
-        if text == WEATHER_ALL:
-            state.pop("search_rows", None)
-            state["page"] = 0
-        else:
-            state["page"] = state.get("page", 0) + (1 if text == WEATHER_NEXT else -1)
-        await prompt_weather_region(message, state)
-        return
-    try:
-        region = match_region(state["rows"], text, region_code_pattern(level, parent))
-    except WeatherError:
-        query = normalized_name(text)
-        candidates = [row for row in state["rows"] if query and query in normalized_name(row["name"])]
-        state["page"] = 0
-        if candidates:
-            # Search is for suggestions only: even one partial match needs user selection.
-            state["search_rows"] = candidates
-            await message.reply_text("Ini pilihan yang sesuai pencarian Anda. Pilih nama lengkap untuk melanjutkan.")
-        else:
-            state.pop("search_rows", None)
-            await message.reply_text(f"Nama belum ditemukan di {state['selected'][-1]['name'] if state['selected'] else 'Indonesia'}. Coba ejaan lain atau pilih dari daftar.")
-        await prompt_weather_region(message, state)
-        return
-    selected = state["selected"] + [region]
-    service = context.application.bot_data["weather_service"]
-    if level < 4:
-        try:
-            rows = await service.regions(level + 1, region["code"])
-        except WeatherError as error:
-            context.user_data.pop("weather_manual", None)
-            await message.reply_text(str(error), reply_markup=ReplyKeyboardRemove())
-            return
-        state["selected"], state["rows"] = selected, rows
-        state["page"] = 0
+    if data == WEATHER_ALL:
         state.pop("search_rows", None)
-        await prompt_weather_region(message, state)
+        state["page"] = 0
+        await prompt_weather_region(query.message, state, edit=True)
         return
-    # Consume the complete request before network I/O; never reuse the selected location.
-    context.user_data.pop("weather_manual", None)
-    status = await message.reply_text("Mengambil prakiraan BMKG untuk wilayah pilihan...", reply_markup=ReplyKeyboardRemove())
-    try:
-        text = await service.forecast_for_regions(selected)
-    except WeatherError as error:
-        text = html.escape(str(error))
-    except Exception as error:
-        logger.warning("Manual weather request failed (%s)", type(error).__name__)
-        text = "Prakiraan gagal diproses. Kirim /cuaca_manual lagi nanti."
-    await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    try:
-        await status.delete()
-    except TelegramError:
-        logger.warning("Could not remove manual weather status message")
+    if data == WEATHER_NEXT:
+        state["page"] = state.get("page", 0) + 1
+        await prompt_weather_region(query.message, state, edit=True)
+        return
+    if data == WEATHER_PREVIOUS:
+        state["page"] = max(0, state.get("page", 0) - 1)
+        await prompt_weather_region(query.message, state, edit=True)
+        return
+    if data.startswith("wr_sel:"):
+        code = data[len("wr_sel:"):]
+        level = len(state["selected"]) + 1
+        parent = state["selected"][-1]["code"] if state["selected"] else ""
+        # Find the region matching the code
+        rows = state.get("search_rows", state["rows"])
+        region = next((r for r in rows if r["code"] == code), None)
+        if region is None:
+            rows_all = state["rows"]
+            region = next((r for r in rows_all if r["code"] == code), None)
+        if region is None:
+            await query.answer("Wilayah tidak ditemukan. Coba lagi.", show_alert=True)
+            return
+        selected = state["selected"] + [region]
+        service = context.application.bot_data["weather_service"]
+        if level < 4:
+            try:
+                next_rows = await service.regions(level + 1, region["code"])
+            except WeatherError as error:
+                context.user_data.pop("weather_manual", None)
+                await query.edit_message_text(str(error))
+                return
+            state["selected"], state["rows"] = selected, next_rows
+            state["page"] = 0
+            state.pop("search_rows", None)
+            await prompt_weather_region(query.message, state, edit=True)
+            return
+        # All 4 levels selected — fetch forecast
+        context.user_data.pop("weather_manual", None)
+        await query.edit_message_text("Mengambil prakiraan BMKG untuk wilayah pilihan...")
+        try:
+            text = await service.forecast_for_regions(selected)
+        except WeatherError as error:
+            text = html.escape(str(error))
+        except Exception as error:
+            logger.warning("Manual weather request failed (%s)", type(error).__name__)
+            text = "Prakiraan gagal diproses. Kirim /cuaca_manual lagi nanti."
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def handle_weather_region_text(update, context):
+    """Placeholder kept for compatibility; inline buttons replaced text input."""
+    message = update.effective_message
+    await message.reply_text(
+        "Pilih wilayah menggunakan tombol di menu cuaca di atas. "
+        "Jika menu sudah hilang, kirim /cuaca_manual untuk memulai lagi."
+    )
 
 
 async def cancel_weather(update, context):
@@ -445,7 +477,16 @@ async def cancel_weather(update, context):
         await deny(update)
         return
     context.user_data.pop("weather_request", None)
-    context.user_data.pop("weather_manual", None)
+    state = context.user_data.pop("weather_manual", None)
+    if state and "menu_message_id" in state:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=state["menu_message_id"],
+                text="Permintaan cuaca dibatalkan.",
+            )
+        except TelegramError:
+            pass
     await update.effective_message.reply_text("Permintaan cuaca dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
 
@@ -480,12 +521,11 @@ async def handle_weather_location(update, context):
     except RegionSelectionRequired as error:
         state = {"started": time.time(), "selected": error.selected, "rows": error.candidates}
         context.user_data["weather_manual"] = state
-        await message.reply_text("Lokasi berhasil dibaca. Data peta belum lengkap/cocok; pilih wilayah berikut agar prakiraan tepat.")
-        await prompt_weather_region(message, state)
         try:
-            await status.delete()
+            await status.edit_text("Lokasi berhasil dibaca. Data peta belum lengkap/cocok; pilih wilayah berikut agar prakiraan tepat.")
         except TelegramError:
-            logger.warning("Could not remove weather status message")
+            logger.warning("Could not update weather status message")
+        await prompt_weather_region(message, state)
         return
     except WeatherError as error:
         text = html.escape(str(error))
@@ -511,7 +551,7 @@ async def show_menu(update, context, section):
     pending_location = context.user_data.pop("weather_request", None)
     pending_manual = context.user_data.pop("weather_manual", None)
     if pending_location is not None or pending_manual is not None:
-        await update.effective_message.reply_text("Permintaan lokasi dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        await update.effective_message.reply_text("Permintaan lokasi dibatalkan.")
     context.user_data["menu"] = section
     text, keyboard = menu_content(section)
     if update.callback_query:
@@ -872,6 +912,7 @@ def main() -> None:
     application.add_handler(CommandHandler(["downloader", "discord"], category_command))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca)$"))
     application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca|cuaca_manual)$"))
+    application.add_handler(CallbackQueryHandler(weather_region_callback, pattern=r"^wr_"))
     application.add_handler(CommandHandler("cuaca", weather_command))
     application.add_handler(CommandHandler("cuaca_manual", weather_manual_command))
     application.add_handler(CommandHandler("batal", cancel_weather))

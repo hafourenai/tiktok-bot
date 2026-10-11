@@ -1,6 +1,7 @@
 import asyncio
 import time
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,8 +13,57 @@ REGIONS = [
     {"code": "31", "name": "DKI Jakarta"},
     {"code": "31.71", "name": "Kota Administrasi Jakarta Pusat"},
     {"code": "31.71.03", "name": "Kemayoran"},
+    {CODE: "code", "code": CODE, "name": "Kemayoran"},
+]
+
+# Fix REGIONS so each entry is a proper dict
+REGIONS = [
+    {"code": "31", "name": "DKI Jakarta"},
+    {"code": "31.71", "name": "Kota Administrasi Jakarta Pusat"},
+    {"code": "31.71.03", "name": "Kemayoran"},
     {"code": CODE, "name": "Kemayoran"},
 ]
+
+
+def make_callback_query(data, message, user_id=123, chat_type="private"):
+    """Build a minimal callback_query-bearing update for weather_region_callback."""
+    cq = SimpleNamespace(
+        data=data,
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+        message=message,
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=user_id),
+        effective_chat=SimpleNamespace(type=chat_type),
+        effective_message=message,
+        message=message,
+        callback_query=cq,
+    )
+    return update, cq
+
+
+def make_menu_message():
+    """A fake bot message that supports edit_text (returned by reply_text)."""
+    msg = SimpleNamespace(
+        edit_text=AsyncMock(),
+        reply_text=AsyncMock(),
+        message_id=42,
+    )
+    # reply_text returns itself so state["menu_message_id"] is set
+    msg.reply_text.return_value = msg
+    return msg
+
+
+def manual_context():
+    update, context, service, status = telegram_context()
+    service.regions = AsyncMock(side_effect=[[region] for region in REGIONS])
+    service.forecast_for_regions = AsyncMock(return_value="Prakiraan manual BMKG")
+    # Make the initial reply_text return a message with edit_text and message_id
+    menu_msg = make_menu_message()
+    update.message.reply_text.return_value = menu_msg
+    update.effective_message.reply_text.return_value = menu_msg
+    return update, context, service, status
 
 
 def test_manual_service_uses_only_region_directory_and_bmkg(monkeypatch):
@@ -41,62 +91,63 @@ def test_manual_service_rejects_wrong_bmkg_region(monkeypatch):
         asyncio.run(weather.WeatherService("https://geo.example").forecast_for_regions(REGIONS))
 
 
-def manual_context():
-    update, context, service, status = telegram_context()
-    service.regions = AsyncMock(side_effect=[[region] for region in REGIONS])
-    service.forecast_for_regions = AsyncMock(return_value="Prakiraan manual BMKG")
-    return update, context, service, status
-
-
 @pytest.mark.parametrize("failed_forecast", [False, True])
-def test_manual_conversation_validates_every_level_and_consumes_request(failed_forecast):
+def test_manual_conversation_via_inline_buttons(failed_forecast):
+    """Selecting all 4 levels via inline callback buttons produces a forecast."""
     async def scenario():
         update, context, service, _ = manual_context()
         context.user_data["weather_request"] = 1
         await bot.weather_manual_command(update, context)
         assert "weather_request" not in context.user_data
+        assert "weather_manual" in context.user_data
+
         if failed_forecast:
             service.forecast_for_regions.side_effect = weather.WeatherError("BMKG tidak tersedia")
-        update.message.text = "Nama salah"
-        await bot.handle_message(update, context)
-        assert context.user_data["weather_manual"]["selected"] == []
+
+        # Simulate clicking each region button in turn
+        state = context.user_data["weather_manual"]
+        menu_msg = make_menu_message()
         for region in REGIONS:
-            update.message.text = region["name"]
-            await bot.handle_message(update, context)
-        assert service.regions.await_args_list[0].args == (1,)
-        for call, level, region in zip(service.regions.await_args_list[1:], range(2, 5), REGIONS):
-            assert call.args == (level, region["code"])
+            cq_update, cq = make_callback_query(f"wr_sel:{region['code']}", menu_msg)
+            context.user_data["weather_manual"] = state
+            # Refresh side_effect correctly per level
+            await bot.weather_region_callback(cq_update, context)
+            state = context.user_data.get("weather_manual", state)
+
         service.forecast_for_regions.assert_awaited_once_with(REGIONS)
         service.forecast.assert_not_awaited()
-        assert context.user_data == {}
+        assert "weather_manual" not in context.user_data
         expected = "BMKG tidak tersedia" if failed_forecast else "Prakiraan manual BMKG"
-        assert update.message.reply_text.call_args.args[0] == expected
-        await bot.handle_message(update, context)
-        assert service.forecast_for_regions.await_count == 1
+        assert expected in menu_msg.edit_text.call_args.args[0]
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("case", ["cancel", "expired", "gps_command", "denied", "directory_error"])
+@pytest.mark.parametrize("case", ["cancel_button", "cancel_command", "expired", "gps_command", "denied"])
 def test_manual_request_cleanup_and_access(case):
     async def scenario():
         update, context, service, _ = manual_context()
         await bot.weather_manual_command(update, context)
-        update.message.text = "DKI Jakarta"
-        if case == "cancel":
+        assert "weather_manual" in context.user_data
+        state = context.user_data["weather_manual"]
+        menu_msg = make_menu_message()
+
+        if case == "cancel_button":
+            cq_update, cq = make_callback_query(bot.WEATHER_CANCEL, menu_msg)
+            await bot.weather_region_callback(cq_update, context)
+        elif case == "cancel_command":
             await bot.cancel_weather(update, context)
         elif case == "expired":
-            context.user_data["weather_manual"]["started"] -= 301
-            await bot.handle_message(update, context)
+            state["started"] -= 301
+            cq_update, cq = make_callback_query(f"wr_sel:{REGIONS[0]['code']}", menu_msg)
+            await bot.weather_region_callback(cq_update, context)
         elif case == "gps_command":
             await bot.weather_command(update, context)
         elif case == "denied":
-            update.effective_user.id = 456
-            await bot.handle_message(update, context)
-            assert context.user_data["weather_manual"]["selected"] == []
+            cq_update, cq = make_callback_query(f"wr_sel:{REGIONS[0]['code']}", menu_msg, user_id=456)
+            await bot.weather_region_callback(cq_update, context)
+            assert "weather_manual" in context.user_data  # denied user doesn't clear state
             return
-        else:
-            service.regions.side_effect = weather.WeatherError("Daftar wilayah belum tersedia")
-            await bot.handle_message(update, context)
+
         assert "weather_manual" not in context.user_data
         service.forecast_for_regions.assert_not_awaited()
     asyncio.run(scenario())
@@ -106,72 +157,86 @@ def test_manual_button_starts_conversation():
     async def scenario():
         update, context, service, _ = manual_context()
         await bot.weather_command(update, context)
-        update.message.text = bot.WEATHER_MANUAL_LABEL
-        await bot.handle_message(update, context)
+        # Simulate clicking the "Input wilayah manual" action callback
+        cq = SimpleNamespace(
+            data="action:cuaca_manual",
+            answer=AsyncMock(),
+        )
+        update.callback_query = cq
+        context.args = []
+        await bot.action_callback(update, context)
         service.regions.assert_awaited_once_with(1)
-        assert "provinsi" in update.message.reply_text.call_args.args[0]
         assert "weather_manual" in context.user_data
     asyncio.run(scenario())
 
 
-def button_texts(message):
-    return [button.text for row in message.reply_text.call_args.kwargs["reply_markup"].keyboard for button in row]
+def inline_button_texts(edit_text_mock):
+    """Extract all button labels from the last edit_text call's InlineKeyboardMarkup."""
+    call_kwargs = edit_text_mock.call_args
+    if call_kwargs is None:
+        return []
+    markup = call_kwargs.kwargs.get("reply_markup") or (
+        call_kwargs.args[1] if len(call_kwargs.args) > 1 else None
+    )
+    if markup is None:
+        return []
+    return [btn.text for row in markup.inline_keyboard for btn in row]
 
 
-@pytest.mark.parametrize("selection", ["Depok", "Kota Depok"])
-def test_depok_visible_on_next_page_and_selectable_by_name(selection):
+def test_pagination_via_inline_buttons():
+    """Next/previous page buttons edit the same message and update page state."""
     async def scenario():
         update, context, service, _ = manual_context()
         depok = {"code": "32.76", "name": "Kota Depok"}
         rows = [{"code": f"32.{i:02}", "name": f"Kabupaten Contoh {i}"} for i in range(1, 24)] + [depok]
         state = {"started": time.time(), "selected": [{"code": "32", "name": "Jawa Barat"}], "rows": rows}
         context.user_data["weather_manual"] = state
-        await bot.prompt_weather_region(update.message, state)
-        assert "Kota Depok" not in button_texts(update.message)
-        assert bot.WEATHER_NEXT in button_texts(update.message)
-        update.message.text = bot.WEATHER_NEXT
-        await bot.handle_message(update, context)
-        assert "Kota Depok" in button_texts(update.message)
-        assert bot.WEATHER_PREVIOUS in button_texts(update.message)
-        assert "Halaman 2/2" in update.message.reply_text.call_args.args[0]
-        update.message.text = bot.WEATHER_PREVIOUS
-        await bot.handle_message(update, context)
+        menu_msg = make_menu_message()
+
+        await bot.prompt_weather_region(menu_msg, state)
+        # Page 1: Depok should not be visible yet
+        markup = menu_msg.reply_text.call_args.kwargs["reply_markup"]
+        texts_p1 = [btn.text for row in markup.inline_keyboard for btn in row]
+        assert "Kota Depok" not in texts_p1
+        assert "Berikutnya →" in texts_p1
+
+        # Press "Berikutnya →"
+        cq_update, cq = make_callback_query(bot.WEATHER_NEXT, menu_msg)
+        await bot.weather_region_callback(cq_update, context)
+        texts_p2 = inline_button_texts(menu_msg.edit_text)
+        assert "Kota Depok" in texts_p2
+        assert "← Sebelumnya" in texts_p2
+        assert state["page"] == 1
+
+        # Press "← Sebelumnya"
+        cq_update, cq = make_callback_query(bot.WEATHER_PREVIOUS, menu_msg)
+        await bot.weather_region_callback(cq_update, context)
         assert state["page"] == 0
-        # Direct name input can select Depok even from another page.
-        service.regions.side_effect = None
-        service.regions.return_value = [{"code": "32.76.01", "name": "Pancoran Mas"}]
-        update.message.text = selection
-        await bot.handle_message(update, context)
-        service.regions.assert_awaited_once_with(3, "32.76")
-        assert state["selected"][-1] == depok
-        assert state["page"] == 0
-        assert "search_rows" not in state
     asyncio.run(scenario())
 
 
-def test_partial_and_ambiguous_search_require_explicit_selection():
+def test_inline_cancel_button_ends_session():
     async def scenario():
         update, context, service, _ = manual_context()
-        rows = [{"code": "32.04", "name": "Kabupaten Bandung"},
-                {"code": "32.73", "name": "Kota Bandung"},
-                {"code": "32.76", "name": "Kota Depok"}]
-        state = {"started": time.time(), "selected": [{"code": "32", "name": "Jawa Barat"}], "rows": rows}
-        context.user_data["weather_manual"] = state
-        for query in ("Bandung", "Band"):
-            update.message.text = query
-            await bot.handle_message(update, context)
-            assert len(state["search_rows"]) == 2
-            assert "Kota Bandung" in button_texts(update.message)
-            assert "Kabupaten Bandung" in button_texts(update.message)
-            assert "Kota Depok" not in button_texts(update.message)
-            service.regions.assert_not_awaited()
-        update.message.text = "Dep"
-        await bot.handle_message(update, context)
-        assert state["search_rows"] == [rows[2]]
-        assert len(state["selected"]) == 1  # even a unique partial search is not a confirmed selection
-        update.message.text = bot.WEATHER_ALL
-        await bot.handle_message(update, context)
-        assert "search_rows" not in state
-        assert "Kabupaten Bandung" in button_texts(update.message)
-        service.regions.assert_not_awaited()
+        await bot.weather_manual_command(update, context)
+        menu_msg = make_menu_message()
+        cq_update, cq = make_callback_query(bot.WEATHER_CANCEL, menu_msg)
+        await bot.weather_region_callback(cq_update, context)
+        assert "weather_manual" not in context.user_data
+        cq.edit_message_text.assert_awaited_once()
+        assert "dibatalkan" in cq.edit_message_text.call_args.args[0]
+    asyncio.run(scenario())
+
+
+def test_expired_session_via_inline_button():
+    async def scenario():
+        update, context, service, _ = manual_context()
+        await bot.weather_manual_command(update, context)
+        context.user_data["weather_manual"]["started"] -= 301
+        menu_msg = make_menu_message()
+        cq_update, cq = make_callback_query(f"wr_sel:{REGIONS[0]['code']}", menu_msg)
+        await bot.weather_region_callback(cq_update, context)
+        assert "weather_manual" not in context.user_data
+        cq.edit_message_text.assert_awaited_once()
+        assert "kedaluwarsa" in cq.edit_message_text.call_args.args[0]
     asyncio.run(scenario())

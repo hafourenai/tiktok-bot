@@ -69,7 +69,9 @@ class WeatherService:
             raise WeatherError("Kode induk wilayah tidak valid. Mulai lagi dengan /cuaca_manual.")
         suffix = f"/{parent_code}" if level > 1 else ""
         try:
-            async with httpx.AsyncClient(timeout=12) as client:
+            async with httpx.AsyncClient(timeout=12, headers={
+                "User-Agent": "HoneyTelegramWeather/1.0 (personal on-demand BMKG forecast)",
+            }) as client:
                 response = await client.get(f"{WILAYAH_URL}/{endpoints[level]}{suffix}.json")
                 response.raise_for_status()
                 rows = response.json()["data"]
@@ -96,7 +98,9 @@ class WeatherService:
                 # BMKG public API: max 60 requests/minute/IP.
                 await asyncio.sleep(max(0, 1.1 - (time.monotonic() - self._last_request)))
                 self._last_request = time.monotonic()
-                async with httpx.AsyncClient(timeout=12) as client:
+                async with httpx.AsyncClient(timeout=12, headers={
+                    "User-Agent": "HoneyTelegramWeather/1.0 (personal on-demand BMKG forecast)",
+                }) as client:
                     response = await client.get(BMKG_URL, params={"adm4": parent})
                     response.raise_for_status()
                     data = response.json()
