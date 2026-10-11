@@ -39,16 +39,27 @@ from menus import menu_content, menu_commands
 from bmkg_location_resolver import WeatherError, WeatherService, RegionSelectionRequired
 from bmkg_location_resolver.resolver import match_region, normalized_name, region_code_pattern
 from bmkg_location_resolver.telegram import coordinates_from_message
-from weather_card import generate_weather_card
-from converter import (
-    SUPPORTED_EXTENSIONS,
-    convert_pdf_to_docx,
-    convert_pdf_to_xlsx,
-    convert_pdf_to_pptx,
-    convert_pdf_to_images,
-    convert_image_to_pdf,
-    convert_office_to_pdf,
-)
+try:
+    from weather_card import generate_weather_card
+    HAS_WEATHER_CARD = True
+except ImportError:
+    generate_weather_card = None
+    HAS_WEATHER_CARD = False
+
+try:
+    from converter import (
+        SUPPORTED_EXTENSIONS,
+        convert_pdf_to_docx,
+        convert_pdf_to_xlsx,
+        convert_pdf_to_pptx,
+        convert_pdf_to_images,
+        convert_image_to_pdf,
+        convert_office_to_pdf,
+    )
+    HAS_CONVERTER = True
+except ImportError:
+    SUPPORTED_EXTENSIONS = {}
+    HAS_CONVERTER = False
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -464,18 +475,23 @@ async def weather_region_callback(update, context):
         context.user_data.pop("weather_manual", None)
         await query.edit_message_text("Mengambil prakiraan BMKG untuk wilayah pilihan...")
         try:
-            forecast_obj = await service.forecast_for_regions(selected, structured=True)
-            card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
-            await query.message.reply_photo(
-                photo=card_buf,
-                caption=f"🌦 <b>Prakiraan Cuaca BMKG</b>\n📍 <b>{forecast_obj.location.get('desa')}, {forecast_obj.location.get('kecamatan')}</b>\n{forecast_obj.location.get('kotkab')}, {forecast_obj.location.get('provinsi')}",
-                parse_mode=ParseMode.HTML,
-            )
-            try:
-                await query.message.delete()
-            except TelegramError:
-                pass
-            return
+            if HAS_WEATHER_CARD and generate_weather_card:
+                forecast_obj = await service.forecast_for_regions(selected, structured=True)
+                card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
+                await query.message.reply_photo(
+                    photo=card_buf,
+                    caption=f"🌦 <b>Prakiraan Cuaca BMKG</b>\n📍 <b>{forecast_obj.location.get('desa')}, {forecast_obj.location.get('kecamatan')}</b>\n{forecast_obj.location.get('kotkab')}, {forecast_obj.location.get('provinsi')}",
+                    parse_mode=ParseMode.HTML,
+                )
+                try:
+                    await query.message.delete()
+                except TelegramError:
+                    pass
+                return
+            else:
+                text = await service.forecast_for_regions(selected)
+                await query.edit_message_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                return
         except WeatherError as error:
             text = html.escape(str(error))
         except Exception as error:
@@ -536,20 +552,25 @@ async def handle_weather_location(update, context):
         return
     status = await message.reply_text("Mencocokkan wilayah dan mengambil prakiraan BMKG...", reply_markup=ReplyKeyboardRemove())
     try:
-        forecast_obj = await context.application.bot_data["weather_service"].forecast(
-            location.latitude, location.longitude, structured=True,
-        )
-        card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
-        await message.reply_photo(
-            photo=card_buf,
-            caption=f"🌦 <b>Prakiraan Cuaca BMKG</b>\n📍 <b>{forecast_obj.location.get('desa')}, {forecast_obj.location.get('kecamatan')}</b>\n{forecast_obj.location.get('kotkab')}, {forecast_obj.location.get('provinsi')}",
-            parse_mode=ParseMode.HTML,
-        )
-        try:
-            await status.delete()
-        except TelegramError:
-            pass
-        return
+        if HAS_WEATHER_CARD and generate_weather_card:
+            forecast_obj = await context.application.bot_data["weather_service"].forecast(
+                location.latitude, location.longitude, structured=True,
+            )
+            card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
+            await message.reply_photo(
+                photo=card_buf,
+                caption=f"🌦 <b>Prakiraan Cuaca BMKG</b>\n📍 <b>{forecast_obj.location.get('desa')}, {forecast_obj.location.get('kecamatan')}</b>\n{forecast_obj.location.get('kotkab')}, {forecast_obj.location.get('provinsi')}",
+                parse_mode=ParseMode.HTML,
+            )
+            try:
+                await status.delete()
+            except TelegramError:
+                pass
+            return
+        else:
+            text = await context.application.bot_data["weather_service"].forecast(
+                location.latitude, location.longitude,
+            )
     except RegionSelectionRequired as error:
         state = {"started": time.time(), "selected": error.selected, "rows": error.candidates}
         context.user_data["weather_manual"] = state
