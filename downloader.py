@@ -164,10 +164,12 @@ def download_instagram(url: str) -> Path:
             raise RuntimeError("Instagram credentials missing. Set INSTAGRAM_USERNAME dan INSTAGRAM_PASSWORD di .env")
         elif "private" in error_msg.lower():
             raise RuntimeError("Media ini private atau account tidak accessible")
+        elif "login failed" in error_msg.lower():
+            raise RuntimeError("Login Instagram gagal. Periksa akun/password atau pembatasan akun.")
         elif "rate limit" in error_msg.lower():
             raise RuntimeError("Instagram rate limit. Coba lagi dalam beberapa menit")
-        elif "challenge" in error_msg.lower():
-            raise RuntimeError("Instagram memerlukan verifikasi manual. Login ke account terlebih dahulu di Instagram")
+        elif "challenge" in error_msg.lower() or "verification" in error_msg.lower():
+            raise RuntimeError("Instagram meminta 2FA/verifikasi keamanan. Bridge belum mendukung penyelesaian 2FA; jangan mencoba login berulang kali.")
         else:
             raise RuntimeError(f"Instagram download gagal: {error_msg}")
     
@@ -185,7 +187,7 @@ def download_instagram(url: str) -> Path:
     
     # Determine file extension based on media type
     extension = ".mp4" if media_type in ("video", "carousel_video", "reel") else ".jpg"
-    target = download_dir / f"instagram-{uploaded_by}-{uuid4().hex}{extension}"
+    target = download_dir / f"instagram-{uuid4().hex}{extension}"
     
     # Download media file
     request = Request(media_url, headers={

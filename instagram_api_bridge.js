@@ -1,7 +1,7 @@
 const { IgApiClient } = require("instagram-private-api");
 
 const args = process.argv.slice(2);
-if (args.length === 0) {
+if (require.main === module && args.length === 0) {
   process.stderr.write("Usage: node instagram_api_bridge.js <action|url> [username] [password]\n");
   process.exit(2);
 }
@@ -17,8 +17,15 @@ function extractMediaId(url) {
   // https://www.instagram.com/reel/ABC123/
   // https://www.instagram.com/tv/ABC123/
   // https://www.instagram.com/stories/username/ABC123/
-  const match = url.match(/(?:p|reel|tv|stories\/\w+)\/([A-Za-z0-9_-]+)/);
-  return match ? match[1] : null;
+  const parsed = new URL(url);
+  if (!['instagram.com', 'www.instagram.com'].includes(parsed.hostname) ||
+      !['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Invalid Instagram URL');
+  }
+  const match = parsed.pathname.match(/^\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)\/?$/);
+  if (match) return decodeMediaId(match[1]);
+  const story = parsed.pathname.match(/^\/stories\/[A-Za-z0-9_.]+\/(\d+)\/?$/);
+  return story ? story[1] : null;
 }
 
 function decodeMediaId(encodedId) {
@@ -27,9 +34,45 @@ function decodeMediaId(encodedId) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   let num = 0n;
   for (const c of encodedId) {
+    if (!alphabet.includes(c)) throw new Error('Invalid Instagram shortcode');
     num = num * 64n + BigInt(alphabet.indexOf(c));
   }
   return num.toString();
+}
+
+async function fetchMedia(ig, url) {
+  const mediaId = extractMediaId(url);
+  if (!mediaId) throw new Error('Invalid Instagram media URL');
+  const response = await ig.media.info(mediaId);
+  const media = response?.items?.[0];
+  if (!media) throw new Error('Media not found or unavailable to this account');
+  return media;
+}
+
+function selectDownload(media) {
+  const item = media.carousel_media?.[0] || media;
+  const videos = (item.video_versions || []).filter(v => v.url);
+  const images = (item.image_versions2?.candidates || []).filter(v => v.url);
+  const candidates = videos.length ? videos : images;
+  candidates.sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0));
+  if (!candidates.length) throw new Error('No downloadable media URL returned');
+  return {url: candidates[0].url, mediaType: videos.length ? 'video' : 'photo'};
+}
+
+function describeError(err) {
+  const message = `${err?.name || ''} ${err?.message || ''}`.toLowerCase();
+  if (/twofactor|two.factor|challenge|checkpoint/.test(message)) {
+    return 'Instagram requires verification (2FA or security challenge).';
+  }
+  if (/429|ratelimit|rate limit|please wait/.test(message)) {
+    return 'Rate limited by Instagram. Wait before trying again.';
+  }
+  if (/login|password|credential|401/.test(message)) {
+    return 'Instagram login failed. Check credentials or account restrictions.';
+  }
+  if (/invalid.*url/.test(message)) return 'Invalid Instagram media URL.';
+  if (/404|not found|unavailable/.test(message)) return 'Media unavailable to this account.';
+  return 'Instagram API request failed. Public media can still be blocked by Instagram.';
 }
 
 async function handleDownload(url, username, password) {
@@ -41,78 +84,22 @@ async function handleDownload(url, username, password) {
   try {
     const ig = new IgApiClient();
     ig.state.generateDevice(username);
-    ig.request.end$.subscribe(() => {
-      // Cleanup subscription
-    });
 
     // Login
     await ig.account.login(username, password);
 
-    // Extract media ID
-    const shortcode = extractMediaId(url);
-    if (!shortcode) {
-      process.stderr.write("Could not extract media ID from URL\n");
-      process.exit(1);
-    }
-
-    // Fetch media info
-    const media = await ig.media.shortcode.info(shortcode);
-
-    if (!media) {
-      process.stderr.write("Media not found or is private\n");
-      process.exit(1);
-    }
-
-    // Extract download URL based on media type
-    let downloadUrl = null;
-    let mediaType = "unknown";
-
-    if (media.video_url) {
-      // Video or Reel
-      downloadUrl = media.video_url;
-      mediaType = media.media_type === 8 ? "carousel" : "video";
-    } else if (media.image_versions2?.candidates?.[0]?.url) {
-      // Photo
-      downloadUrl = media.image_versions2.candidates[0].url;
-      mediaType = "photo";
-    } else if (media.carousel_media?.[0]) {
-      // Carousel - download first item
-      const firstItem = media.carousel_media[0];
-      if (firstItem.video_url) {
-        downloadUrl = firstItem.video_url;
-        mediaType = "carousel_video";
-      } else if (firstItem.image_versions2?.candidates?.[0]?.url) {
-        downloadUrl = firstItem.image_versions2.candidates[0].url;
-        mediaType = "carousel_photo";
-      }
-    }
-
-    if (!downloadUrl) {
-      process.stderr.write("Could not extract download URL from media\n");
-      process.exit(1);
-    }
+    const media = await fetchMedia(ig, url);
 
     const response = {
       status: "success",
-      url: downloadUrl,
-      mediaType: mediaType,
+      ...selectDownload(media),
       caption: media.caption?.text || "",
       uploadedBy: media.user?.username || "unknown",
     };
 
     process.stdout.write(JSON.stringify(response));
   } catch (err) {
-    const message = err?.message || "Failed to download Instagram media";
-    // Check for specific errors
-    if (message.includes("401") || message.includes("Invalid")) {
-      process.stderr.write("Invalid Instagram credentials or account is restricted\n");
-    } else if (message.includes("429")) {
-      process.stderr.write("Rate limited by Instagram. Wait and try again later\n");
-    } else if (message.includes("challenge")) {
-      process.stderr.write("Account needs verification (2FA or security challenge). Login manually first\n");
-    } else {
-      process.stderr.write(`${message}\n`);
-    }
+    process.stderr.write(describeError(err) + '\n');
     process.exit(1);
   }
 }
@@ -126,19 +113,10 @@ async function handleInfo(url, username, password) {
   try {
     const ig = new IgApiClient();
     ig.state.generateDevice(username);
-    ig.request.end$.subscribe(() => {
-      // Cleanup subscription
-    });
 
     await ig.account.login(username, password);
 
-    const shortcode = extractMediaId(url);
-    if (!shortcode) {
-      process.stderr.write("Could not extract media ID from URL\n");
-      process.exit(1);
-    }
-
-    const media = await ig.media.shortcode.info(shortcode);
+    const media = await fetchMedia(ig, url);
 
     if (!media) {
       process.stderr.write("Media not found or is private\n");
@@ -161,13 +139,14 @@ async function handleInfo(url, username, password) {
 
     process.stdout.write(JSON.stringify(response));
   } catch (err) {
-    const message = err?.message || "Failed to get Instagram media info";
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(describeError(err) + '\n');
     process.exit(1);
   }
 }
 
-(async () => {
+module.exports = {extractMediaId, decodeMediaId, fetchMedia, selectDownload};
+
+if (require.main === module) (async () => {
   const username = process.env.INSTAGRAM_USERNAME || param2;
   const password = process.env.INSTAGRAM_PASSWORD || null;
 

@@ -959,7 +959,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if is_instagram:
         await message.reply_text(
             f"📷 <b>Media Instagram diterima</b>\n\n"
-            "Mengunduh...",
+            "Tekan Lanjutkan untuk mengunduh foto atau video. Untuk carousel, hanya item pertama yang diunduh.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("Lanjutkan", callback_data=f"quality:normal:{request_id}")]
@@ -1070,7 +1070,7 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info("Upload started for user %s", user_id)
         
         # Determine media type and send accordingly
-        if platform == "Instagram" or file_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+        if file_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
             # Send as photo if it's an Instagram photo
             with file_path.open("rb") as media:
                 await message.reply_photo(
@@ -1098,11 +1098,12 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Jalankan python check_environment.py di Termux untuk diagnosis.\n"
             f"Jenis error: {type(error).__name__}"
         )
-    except DownloadError:
+    except DownloadError as error:
         logger.exception("Download failed for user %s", user_id)
         try:
             await status.edit_text(
-                build_download_failure(platform),
+                ("❌ <b>Download Instagram gagal</b>\n\n" + html.escape(str(error))
+                 if platform == "Instagram" else build_download_failure(platform)),
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
             )

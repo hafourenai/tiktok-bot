@@ -57,6 +57,11 @@ def main():
         )
         failed |= result.returncode != 0
         print(f"{'OK' if result.returncode == 0 else 'GAGAL'}: @tobyg74/tiktok-api-dl (npm install)")
+        result = subprocess.run(
+            ["node", "-e", "require('instagram-private-api')"], cwd=root,
+            capture_output=True, timeout=30,
+        )
+        print(f"{'OK' if result.returncode == 0 else 'OPSIONAL (tidak ada)'}: instagram-private-api (npm install)")
     try:
         from dotenv import load_dotenv
         load_dotenv(root / ".env")

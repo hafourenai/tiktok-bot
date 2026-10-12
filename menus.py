@@ -7,6 +7,8 @@ def menu_content(section: str):
         text = (
             "📥 <b>Media Downloader & Stalker</b>\n\n"
             "• Kirim link <b>TikTok</b> atau <b>YouTube</b> untuk unduh video (pilihan Kualitas Biasa / HD).\n"
+            "• Kirim link <b>Instagram</b> (post/reel) untuk unduh foto atau video. Carousel: item pertama saja.\n"
+            "• Instagram membutuhkan akun yang dikonfigurasi di server; login dapat terkena verifikasi atau rate limit.\n"
             "• <code>/stalk [username]</code> — intip profil publik TikTok."
         )
         rows = [back]
