@@ -133,6 +133,113 @@ def stalk_tiktok_user(username: str) -> dict:
     return data["result"]
 
 
+def download_instagram(url: str) -> Path:
+    """Download one Instagram photo/video/story and return its temporary local path.
+    
+    Requires INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD environment variables.
+    Supports: Posts, Reels, Stories, Carousel (downloads first item).
+    """
+    from config import DOWNLOAD_DIR
+    import os
+    
+    download_dir = Path(DOWNLOAD_DIR)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    bridge = Path(__file__).with_name("instagram_api_bridge.js")
+    
+    # Call Instagram bridge with URL only (credentials from env)
+    result = subprocess.run(
+        ["node", str(bridge), "download", url],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env={**os.environ, "INSTAGRAM_USERNAME": os.getenv("INSTAGRAM_USERNAME", ""),
+             "INSTAGRAM_PASSWORD": os.getenv("INSTAGRAM_PASSWORD", "")},
+    )
+    
+    if result.returncode != 0:
+        error_msg = result.stderr.strip() or "Instagram download failed"
+        # Provide helpful error messages
+        if "credentials" in error_msg.lower():
+            raise RuntimeError("Instagram credentials missing. Set INSTAGRAM_USERNAME dan INSTAGRAM_PASSWORD di .env")
+        elif "private" in error_msg.lower():
+            raise RuntimeError("Media ini private atau account tidak accessible")
+        elif "rate limit" in error_msg.lower():
+            raise RuntimeError("Instagram rate limit. Coba lagi dalam beberapa menit")
+        elif "challenge" in error_msg.lower():
+            raise RuntimeError("Instagram memerlukan verifikasi manual. Login ke account terlebih dahulu di Instagram")
+        else:
+            raise RuntimeError(f"Instagram download gagal: {error_msg}")
+    
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError("Respon Instagram tidak valid") from err
+    
+    if data.get("status") != "success" or "url" not in data:
+        raise RuntimeError(data.get("message") or "Gagal mengekstrak URL media Instagram")
+    
+    media_url = data["url"]
+    media_type = data.get("mediaType", "unknown")
+    uploaded_by = data.get("uploadedBy", "unknown")
+    
+    # Determine file extension based on media type
+    extension = ".mp4" if media_type in ("video", "carousel_video", "reel") else ".jpg"
+    target = download_dir / f"instagram-{uploaded_by}-{uuid4().hex}{extension}"
+    
+    # Download media file
+    request = Request(media_url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://www.instagram.com/"
+    })
+    try:
+        with urlopen(request, timeout=300) as response, target.open("wb") as media:
+            shutil.copyfileobj(response, media)
+    except Exception as e:
+        target.unlink(missing_ok=True)
+        raise RuntimeError(f"Gagal download media dari Instagram: {e}") from e
+    
+    if not target.exists() or target.stat().st_size == 0:
+        target.unlink(missing_ok=True)
+        raise FileNotFoundError("Instagram media file tidak berhasil diunduh")
+    
+    logger.info("Instagram media downloaded: %s (%s)", uploaded_by, media_type)
+    return target
+
+
+def get_instagram_info(url: str) -> dict:
+    """Fetch Instagram media information (caption, likes, comments, etc).
+    
+    Requires INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD environment variables.
+    """
+    import os
+    
+    bridge = Path(__file__).with_name("instagram_api_bridge.js")
+    
+    result = subprocess.run(
+        ["node", str(bridge), "info", url],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "INSTAGRAM_USERNAME": os.getenv("INSTAGRAM_USERNAME", ""),
+             "INSTAGRAM_PASSWORD": os.getenv("INSTAGRAM_PASSWORD", "")},
+    )
+    
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Gagal mengambil info Instagram")
+    
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError("Respon info Instagram tidak valid") from err
+    
+    if data.get("status") != "success":
+        raise RuntimeError(data.get("message") or "Media Instagram tidak ditemukan")
+    
+    return data
+
+
 def download_youtube(url: str, quality: str = "normal") -> Path:
     """Download one YouTube video and return its temporary local path."""
     from config import DOWNLOAD_DIR

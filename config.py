@@ -57,3 +57,12 @@ YOUTUBE_URL_RE = re.compile(
     r"^https?://(?:www\.)?(?:youtube\.com/watch\?(?:.*&)?v=[-\w]{11}.*|youtu\.be/[-\w]{11}(?:\?.*)?|youtube\.com/embed/[-\w]{11}(?:\?.*)?)$",
     re.IGNORECASE,
 )
+
+INSTAGRAM_URL_RE = re.compile(
+    r"^https?://(?:www\.)?instagram\.com/(?:p|reel|tv|stories/\w+)/[A-Za-z0-9_-]+(?:\?.*)?$",
+    re.IGNORECASE,
+)
+
+INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME", "").strip()
+INSTAGRAM_PASSWORD = os.getenv("INSTAGRAM_PASSWORD", "").strip()
+# Note: Credentials are optional - Instagram download will fail gracefully if not provided

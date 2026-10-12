@@ -33,6 +33,7 @@ from config import (
     VOICE_EXPORT_DIR,
     WEATHER_GEOCODER_URL,
     YOUTUBE_URL_RE,
+    INSTAGRAM_URL_RE,
 )
 from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
@@ -77,6 +78,8 @@ from downloader import (
     download_with_gallery_dl,
     download_with_tiktok_api_dl,
     download_youtube,
+    download_instagram,
+    get_instagram_info,
     stalk_tiktok_user,
 )
 
@@ -114,6 +117,11 @@ def is_tiktok_url(text: str) -> bool:
 def is_youtube_url(text: str) -> bool:
     """Return True only for supported YouTube URL shapes."""
     return bool(YOUTUBE_URL_RE.fullmatch(text.strip()))
+
+
+def is_instagram_url(text: str) -> bool:
+    """Return True only for supported Instagram URL shapes."""
+    return bool(INSTAGRAM_URL_RE.fullmatch(text.strip()))
 
 
 def is_allowed(update: Update) -> bool:
@@ -919,10 +927,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await weather_manual_command(update, context)
         return
     
+     
     is_tiktok = is_tiktok_url(text)
     is_youtube = is_youtube_url(text)
+    is_instagram = is_instagram_url(text)
     
-    if not is_tiktok and not is_youtube:
+    if not is_tiktok and not is_youtube and not is_instagram:
         requested = context.user_data.get("weather_request")
         if requested is not None:
             if time.time() - requested > WEATHER_REQUEST_TTL:
@@ -933,30 +943,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await message.reply_text(
             "❌ <b>URL tidak valid</b>\n\n"
-            "Silakan kirim link TikTok atau YouTube yang dapat diakses secara publik.",
+            "Silakan kirim link TikTok, YouTube, atau Instagram yang dapat diakses secara publik.",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    platform = "TikTok" if is_tiktok else "YouTube"
+    platform = "TikTok" if is_tiktok else ("YouTube" if is_youtube else "Instagram")
     request_id = uuid4().hex[:12]
     pending = context.user_data.setdefault("downloads", {})
     if len(pending) >= 20:
         pending.pop(next(iter(pending)))
     pending[request_id] = (text, platform)
-    await message.reply_text(
-        f"🎬 <b>Video {platform} diterima</b>\n\n"
-        "Pilih kualitas download:\n"
-        "• Biasa: ukuran lebih kecil\n"
-        "• HD: kualitas lebih tinggi, ukuran lebih besar",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("Biasa (lebih kecil)", callback_data=f"quality:normal:{request_id}"),
-                InlineKeyboardButton("HD (lebih besar)", callback_data=f"quality:hd:{request_id}"),
-            ]
-        ]),
-    )
+    
+    # Instagram doesn't need quality selection
+    if is_instagram:
+        await message.reply_text(
+            f"📷 <b>Media Instagram diterima</b>\n\n"
+            "Mengunduh...",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Lanjutkan", callback_data=f"quality:normal:{request_id}")]
+            ]),
+        )
+    else:
+        await message.reply_text(
+            f"🎬 <b>Video {platform} diterima</b>\n\n"
+            "Pilih kualitas download:\n"
+            "• Biasa: ukuran lebih kecil\n"
+            "• HD: kualitas lebih tinggi, ukuran lebih besar",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("Biasa (lebih kecil)", callback_data=f"quality:normal:{request_id}"),
+                    InlineKeyboardButton("HD (lebih besar)", callback_data=f"quality:hd:{request_id}"),
+                ]
+            ]),
+        )
 
 
 async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -990,7 +1012,7 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         async with DOWNLOAD_LIMIT:
-            await status.edit_text(f"Mengunduh video {platform} ({'HD' if quality == 'hd' else 'Biasa'})...\nMengambil media dan menyiapkan file.")
+            await status.edit_text(f"Mengunduh media {platform}...\nMengambil media dan menyiapkan file.")
             logger.info("User %s requested %s download", user_id, platform)
             if platform == "YouTube":
                 try:
@@ -1000,7 +1022,15 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         raise
                     logger.error("YouTube download failed for user %s: %s", user_id, yt_error)
                     raise DownloadError("YouTube download failed") from yt_error
-            else:
+            elif platform == "Instagram":
+                try:
+                    file_path = await asyncio.to_thread(download_instagram, url)
+                except Exception as ig_error:
+                    if is_local_file_error(ig_error):
+                        raise
+                    logger.error("Instagram download failed for user %s: %s", user_id, ig_error)
+                    raise DownloadError(str(ig_error)) from ig_error
+            else:  # TikTok
                 try:
                     file_path = await asyncio.to_thread(download_tiktok, url, quality)
                 except Exception as primary_error:
@@ -1026,24 +1056,36 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             raise FileNotFoundError("Downloaded file was not found")
         if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
             await status.edit_text(
-                "⚠️ <b>Video terlalu besar</b>\n\n"
-                "Video berhasil diunduh, tetapi ukurannya melebihi batas Telegram.\n"
-                "Silakan pilih video yang lebih kecil.",
+                "⚠️ <b>Media terlalu besar</b>\n\n"
+                "Media berhasil diunduh, tetapi ukurannya melebihi batas Telegram.\n"
+                "Silakan pilih media yang lebih kecil.",
                 parse_mode=ParseMode.HTML,
             )
             return
 
         await status.edit_text(
-            f"✅ <b>Download selesai</b>\nUkuran: {file_path.stat().st_size / (1024 * 1024):.1f} MB\n\n📤 Mengirim video ke Telegram...",
+            f"✅ <b>Download selesai</b>\nUkuran: {file_path.stat().st_size / (1024 * 1024):.1f} MB\n\n📤 Mengirim ke Telegram...",
             parse_mode=ParseMode.HTML,
         )
         logger.info("Upload started for user %s", user_id)
-        with file_path.open("rb") as video:
-            await message.reply_video(
-                video=video,
-                caption="🎉 <b>Video berhasil dikirim!</b>",
-                parse_mode=ParseMode.HTML,
-            )
+        
+        # Determine media type and send accordingly
+        if platform == "Instagram" or file_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+            # Send as photo if it's an Instagram photo
+            with file_path.open("rb") as media:
+                await message.reply_photo(
+                    photo=media,
+                    caption="🎉 <b>Media berhasil dikirim!</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+        else:
+            # Send as video
+            with file_path.open("rb") as media:
+                await message.reply_video(
+                    video=media,
+                    caption="🎉 <b>Media berhasil dikirim!</b>",
+                    parse_mode=ParseMode.HTML,
+                )
         logger.info("Upload completed for user %s", user_id)
         try:
             await status.edit_text("Selesai — video berhasil dikirim.")
