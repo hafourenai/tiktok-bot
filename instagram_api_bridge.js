@@ -99,7 +99,7 @@ async function handleDownload(url, username, password) {
 
     process.stdout.write(JSON.stringify(response));
   } catch (err) {
-    process.stderr.write(describeError(err) + '\n');
+    process.stderr.write(`${describeError(err)} [${err?.name || 'InstagramError'}]\n`);
     process.exit(1);
   }
 }

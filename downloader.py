@@ -160,13 +160,14 @@ def download_instagram(url: str) -> Path:
     if result.returncode != 0:
         error_msg = result.stderr.strip() or "Instagram download failed"
         # Provide helpful error messages
-        if "credentials" in error_msg.lower():
-            raise RuntimeError("Instagram credentials missing. Set INSTAGRAM_USERNAME dan INSTAGRAM_PASSWORD di .env")
-        elif "private" in error_msg.lower():
-            raise RuntimeError("Media ini private atau account tidak accessible")
-        elif "login failed" in error_msg.lower():
+        lower_error = error_msg.lower()
+        if "login failed" in lower_error:
             raise RuntimeError("Login Instagram gagal. Periksa akun/password atau pembatasan akun.")
-        elif "rate limit" in error_msg.lower():
+        elif "credentials required" in lower_error or "credentials missing" in lower_error:
+            raise RuntimeError("Instagram credentials missing. Set INSTAGRAM_USERNAME dan INSTAGRAM_PASSWORD di .env")
+        elif "private" in lower_error:
+            raise RuntimeError("Media ini private atau account tidak accessible")
+        elif "rate limit" in lower_error:
             raise RuntimeError("Instagram rate limit. Coba lagi dalam beberapa menit")
         elif "challenge" in error_msg.lower() or "verification" in error_msg.lower():
             raise RuntimeError("Instagram meminta 2FA/verifikasi keamanan. Bridge belum mendukung penyelesaian 2FA; jangan mencoba login berulang kali.")

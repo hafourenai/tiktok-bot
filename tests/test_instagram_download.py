@@ -35,6 +35,13 @@ def test_instagram_login_error_is_actionable(tmp_path):
             download_instagram("https://instagram.com/reel/BA/")
 
 
+def test_instagram_credentials_required_is_distinct_from_login_failure(tmp_path):
+    response = MagicMock(returncode=1, stderr="Instagram credentials required.", stdout="")
+    with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch("downloader.subprocess.run", return_value=response):
+        with pytest.raises(RuntimeError, match="credentials missing"):
+            download_instagram("https://instagram.com/reel/BA/")
+
+
 @pytest.mark.parametrize("extension,method", [(".mp4", "reply_video"), (".jpg", "reply_photo")])
 def test_instagram_telegram_upload(monkeypatch, tmp_path, extension, method):
     import bot
