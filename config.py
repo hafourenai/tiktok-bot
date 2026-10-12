@@ -59,7 +59,7 @@ YOUTUBE_URL_RE = re.compile(
 )
 
 INSTAGRAM_URL_RE = re.compile(
-    r"^https?://(?:www\.)?instagram\.com/(?:p|reel|tv|stories/\w+)/[A-Za-z0-9_-]+(?:\?.*)?$",
+    r"^https?://(?:www\.)?instagram\.com/(?:p|reel|tv|stories/[A-Za-z0-9_.]+)/[A-Za-z0-9_-]+/?(?:\?[^\s#]*)?(?:#[^\s]*)?$",
     re.IGNORECASE,
 )
 
