@@ -63,6 +63,7 @@ INSTAGRAM_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
-INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME", "").strip()
-INSTAGRAM_PASSWORD = os.getenv("INSTAGRAM_PASSWORD", "").strip()
-# Note: Credentials are optional - Instagram download will fail gracefully if not provided
+INSTAGRAM_APP_ID = os.getenv("INSTAGRAM_APP_ID", "").strip()
+INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "").strip()
+INSTAGRAM_REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI", "").strip()
+INSTAGRAM_TOKEN_ENCRYPTION_KEY = os.getenv("INSTAGRAM_TOKEN_ENCRYPTION_KEY", "").strip()
