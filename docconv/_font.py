@@ -1,10 +1,3 @@
-"""Glyph to Unicode mapping and width lookup (stage P6).
-
-Covers the encodings that actually show up in Indonesian documents:
-StandardEncoding, WinAnsiEncoding, MacRomanEncoding, plus ``/Differences``
-and ``/ToUnicode`` CMaps (including composite Type0 fonts).
-"""
-
 from ._obj import Stream, tokenize_operators
 
 # -- base encodings ------------------------------------------------------

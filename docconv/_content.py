@@ -1,10 +1,3 @@
-"""Content stream interpretation (stage P5).
-
-Walks the operators that matter for text extraction and produces
-:class:`TextRun` objects positioned in PDF user space (origin bottom-left,
-y increasing upwards).
-"""
-
 import math
 
 from ._obj import tokenize_operators
@@ -165,7 +158,6 @@ class ContentParser:
         self._font_cache: dict = {}
         self._font = None
 
-    # -- public ------------------------------------------------------------
     def parse(self, data: bytes) -> None:
         if not data:
             return
@@ -312,7 +304,6 @@ class ContentParser:
             if op not in _INCOMPLETE_OPERATOR:
                 operands = []
 
-    # -- helpers -----------------------------------------------------------
     def _emit_path(self, ctm, path) -> None:
         """Record a stroked path as potential table ruling lines."""
         if len(path) < 2:

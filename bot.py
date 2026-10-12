@@ -49,7 +49,7 @@ except ImportError:
     HAS_WEATHER_CARD = False
 
 try:
-    from converter import (
+    from src.converter import (
         SUPPORTED_EXTENSIONS,
         cleanup_stale_workspaces,
         convert_pdf_to_docx,

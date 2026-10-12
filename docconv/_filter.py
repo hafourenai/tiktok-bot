@@ -1,9 +1,3 @@
-"""Stream filter decoding (stage P3).
-
-Everything here is stdlib-only: ``zlib`` for Flate, hand-rolled LZW/ASCII85/
-ASCIIHex/RunLength, and the PNG/TIFF predictors used by xref streams.
-"""
-
 import zlib
 
 from ._obj import Stream

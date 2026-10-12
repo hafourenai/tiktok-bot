@@ -1,5 +1,3 @@
-"""Document structure and page tree (stage P4)."""
-
 from ._obj import PdfSyntaxError, Stream
 from ._xref import load
 

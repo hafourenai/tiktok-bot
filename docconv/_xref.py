@@ -1,14 +1,3 @@
-"""Cross-reference resolution (stage P2).
-
-Handles the three real-world layouts:
-  * classic ``xref`` tables chained through ``/Prev`` (and hybrid ``/XRefStm``)
-  * ``/Type /XRef`` streams, including the PNG/TIFF predictors every modern
-    producer uses
-  * ``/Type /ObjStm`` object streams
-
-When the table is unusable it falls back to a brute-force scan for ``N G obj``.
-"""
-
 import re
 
 from ._filter import apply_filters

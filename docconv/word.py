@@ -1,10 +1,3 @@
-"""DOCX reader and writer (stage T2).
-
-WordprocessingML is small enough to emit by hand: paragraphs are ``w:p``
-elements holding runs of ``w:t`` text, and page breaks are a ``w:br`` run. The
-reader walks ``w:p`` and ``w:tbl`` in document order.
-"""
-
 from ._ooxml import (OoxmlError, PackageReader, PackageWriter,
                      content_types_xml, descendants, find_all, local_name)
 

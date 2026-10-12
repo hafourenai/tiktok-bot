@@ -1,11 +1,3 @@
-"""PDF lexer and object model (stage P1).
-
-This is the foundation every later stage parses on top of: it turns raw PDF
-bytes into Python objects (``dict``, ``list``, ``float``, ``int``, ``bytes``,
-``bool``, ``None``) plus the two PDF-specific types ``Name``, ``Ref`` and
-``Stream``.
-"""
-
 WHITESPACE = b"\x00\t\n\x0c\r "
 DELIMITERS = b"()<>[]{}/%"
 _REGULAR_END = WHITESPACE + DELIMITERS

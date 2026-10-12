@@ -1,13 +1,3 @@
-"""XLSX reader and writer (stage T3).
-
-SpreadsheetML keeps every string in a shared string table and references it by
-index. Cells are addressed by ``r`` (``B7``) in ``sheetN.xml``, which is parsed
-into ``(row, column)`` here.
-
-Cells written as strings stay strings: a value like ``=1+1`` must not be turned
-into a formula, since the source came from a document, not a calculation.
-"""
-
 import re
 
 from ._ooxml import (OoxmlError, PackageReader, PackageWriter,
