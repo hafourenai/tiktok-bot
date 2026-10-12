@@ -33,9 +33,9 @@ def menu_content(section: str):
         text = (
             "🌤️ <b>Prakiraan Cuaca Indonesia (BMKG)</b>\n\n"
             "Dapatkan kartu prakiraan cuaca visual resmi BMKG hingga tingkat kelurahan/desa.\n\n"
-            "• <b>Via GPS:</b> Tekan tombol di bawah lalu bagikan lokasi Anda.\n"
-            "• <b>Via Manual:</b> Pilih provinsi, kota, kecamatan, dan kelurahan.\n"
-            "• <code>/batal</code> — batalkan sesi pencarian cuaca."
+            "• <b>Via GPS:</b> Tekan tombol di bawah untuk meminta tombol share lokasi.\n"
+            "• <b>Via Manual:</b> Pilih provinsi, kota, kecamatan, dan kelurahan secara bertahap.\n"
+            "• <code>/batal</code> — batalkan sesi pencarian cuaca kapan saja."
         )
         rows = [
             [InlineKeyboardButton("📍 Kirim Lokasi GPS", callback_data="action:cuaca"),

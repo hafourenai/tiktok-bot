@@ -63,7 +63,7 @@ def test_menu_navigation_updates_commands():
         context = SimpleNamespace(user_data={}, bot=SimpleNamespace(set_my_commands=AsyncMock()))
         await show_menu(update, context, "home")
         keyboard = message.reply_text.call_args.kwargs["reply_markup"]
-        assert [button.text for button in keyboard.inline_keyboard[0]] == ["Downloader", "Discord"]
+        assert [button.text for button in keyboard.inline_keyboard[0]] == ["📥 Downloader", "🎙️ Discord Voice"]
         assert keyboard.inline_keyboard[1][0].callback_data == "menu:cuaca"
         update.callback_query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
         await show_menu(update, context, "discord")

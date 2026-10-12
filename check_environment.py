@@ -15,7 +15,7 @@ def main():
     for module, package in [
         ("telegram", "python-telegram-bot"), ("yt_dlp", "yt-dlp"),
         ("dotenv", "python-dotenv"), ("gallery_dl", "gallery-dl"),
-        ("discord", "discord.py"), ("openpyxl", "openpyxl"), ("tzdata", "tzdata"),
+        ("discord", "discord.py"), ("PIL", "Pillow"), ("tzdata", "tzdata"),
     ]:
         try:
             importlib.import_module(module)
@@ -23,6 +23,29 @@ def main():
         except Exception as error:
             failed = True
             print(f"GAGAL: {package} ({type(error).__name__}: {error})")
+    # Document conversion is stdlib-only; these external binaries are optional
+    # and only gate specific paths, so report them without failing the check.
+    sys.path.insert(0, str(root))
+    try:
+        import docconv
+        from docconv import extract_pages
+
+        print("OK: docconv (konversi dokumen, tanpa library pihak ketiga)")
+        del extract_pages, docconv
+    except Exception as error:
+        failed = True
+        print(f"GAGAL: docconv ({type(error).__name__}: {error})")
+    for label, module_name, finder in [
+        ("LibreOffice (Word/Excel/PPT ke PDF)", "converter", "get_libreoffice_bin"),
+        ("poppler/pdftoppm (PDF ke gambar/PPT)", "converter", "get_poppler_bin"),
+        ("tesseract (OCR halaman scan)", "ocr", "get_tesseract_bin"),
+    ]:
+        try:
+            module = importlib.import_module(module_name)
+            available = bool(getattr(module, finder)())
+        except Exception:
+            available = False
+        print(f"{'OK' if available else 'OPSIONAL (tidak ada)'}: {label}")
     for executable in ("node", "ffmpeg"):
         available = shutil.which(executable)
         failed |= not bool(available)

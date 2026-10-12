@@ -13,6 +13,8 @@ node_modules/
 *.db
 data/
 *.xlsx
+# Reference fixtures for the document reader are deliberately committed.
+!tests/fixtures/*.xlsx
 build/
 dist/
 *.egg-info/

@@ -1,5 +1,10 @@
 # Telegram Video Downloader Bot
 
+## Converter dokumen
+
+Word/Excel/PowerPoint ↔ PDF tersedia melalui menu `/converter`.
+Panduan engine, instalasi, dan batasan hasil: [docs/converter.md](docs/converter.md).
+
 ## Package resolver cuaca
 
 Resolver kini berada di `src/bmkg_location_resolver/` sebagai package Python

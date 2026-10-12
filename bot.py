@@ -4,6 +4,8 @@ import html
 import logging
 import os
 import re
+import shutil
+import tempfile
 import time
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
@@ -49,17 +51,26 @@ except ImportError:
 try:
     from converter import (
         SUPPORTED_EXTENSIONS,
+        cleanup_stale_workspaces,
         convert_pdf_to_docx,
         convert_pdf_to_xlsx,
         convert_pdf_to_pptx,
         convert_pdf_to_images,
         convert_image_to_pdf,
         convert_office_to_pdf,
+        new_workspace,
     )
     HAS_CONVERTER = True
 except ImportError:
     SUPPORTED_EXTENSIONS = {}
     HAS_CONVERTER = False
+
+    def new_workspace():
+        return tempfile.mkdtemp(prefix="convert-")
+
+    def cleanup_stale_workspaces():
+        return []
+
 from downloader import (
     cleanup_downloads,
     download_tiktok,
@@ -476,7 +487,10 @@ async def weather_region_callback(update, context):
         await query.edit_message_text("Mengambil prakiraan BMKG untuk wilayah pilihan...")
         try:
             if HAS_WEATHER_CARD and generate_weather_card:
-                forecast_obj = await service.forecast_for_regions(selected, structured=True)
+                try:
+                    forecast_obj = await service.forecast_for_regions(selected, structured=True)
+                except TypeError:
+                    forecast_obj = await service.forecast_for_regions(selected)
                 card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
                 await query.message.reply_photo(
                     photo=card_buf,
@@ -553,9 +567,14 @@ async def handle_weather_location(update, context):
     status = await message.reply_text("Mencocokkan wilayah dan mengambil prakiraan BMKG...", reply_markup=ReplyKeyboardRemove())
     try:
         if HAS_WEATHER_CARD and generate_weather_card:
-            forecast_obj = await context.application.bot_data["weather_service"].forecast(
-                location.latitude, location.longitude, structured=True,
-            )
+            try:
+                forecast_obj = await context.application.bot_data["weather_service"].forecast(
+                    location.latitude, location.longitude, structured=True,
+                )
+            except TypeError:
+                forecast_obj = await context.application.bot_data["weather_service"].forecast(
+                    location.latitude, location.longitude,
+                )
             card_buf = generate_weather_card(forecast_obj.data, forecast_obj.code)
             await message.reply_photo(
                 photo=card_buf,
@@ -711,64 +730,62 @@ async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     status = await query.edit_message_text(f"⏳ Sedang mengonversi ke <b>{target.upper()}</b>...", parse_mode=ParseMode.HTML)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        input_file_path = os.path.join(tmp_dir, file_info["file_name"])
-        try:
-            tg_file = await context.bot.get_file(file_id)
-            await tg_file.download_to_drive(input_file_path)
+    workspace = new_workspace()
+    input_file_path = os.path.join(workspace, file_info["file_name"])
+    try:
+        tg_file = await context.bot.get_file(file_id)
+        await tg_file.download_to_drive(input_file_path)
 
-            base_stem = Path(file_info["file_name"]).stem
-            ext = file_info["ext"]
+        base_stem = Path(file_info["file_name"]).stem
+        ext = file_info["ext"]
 
-            if ext == ".pdf":
-                if target == "docx":
-                    out_path = os.path.join(tmp_dir, f"{base_stem}.docx")
-                    await asyncio.to_thread(convert_pdf_to_docx, input_file_path, out_path)
-                    await context.bot.send_document(
-                        chat_id=update.effective_chat.id,
-                        document=open(out_path, "rb"),
-                        caption=f"✅ Berhasil dikonversi ke Word (.docx)",
-                    )
-                elif target == "xlsx":
-                    out_path = os.path.join(tmp_dir, f"{base_stem}.xlsx")
-                    await asyncio.to_thread(convert_pdf_to_xlsx, input_file_path, out_path)
-                    await context.bot.send_document(
-                        chat_id=update.effective_chat.id,
-                        document=open(out_path, "rb"),
-                        caption=f"✅ Berhasil diekstrak ke Excel (.xlsx)",
-                    )
-                elif target == "pptx":
-                    out_path = os.path.join(tmp_dir, f"{base_stem}.pptx")
-                    await asyncio.to_thread(convert_pdf_to_pptx, input_file_path, out_path)
-                    await context.bot.send_document(
-                        chat_id=update.effective_chat.id,
-                        document=open(out_path, "rb"),
-                        caption=f"✅ Berhasil dikonversi ke PowerPoint (.pptx)",
-                    )
-                elif target == "images":
-                    imgs = await asyncio.to_thread(convert_pdf_to_images, input_file_path, tmp_dir)
-                    for img_p in imgs[:10]:
-                        await context.bot.send_document(chat_id=update.effective_chat.id, document=open(img_p, "rb"))
-            elif ext in [".jpg", ".jpeg", ".png"]:
-                out_path = os.path.join(tmp_dir, f"{base_stem}.pdf")
-                await asyncio.to_thread(convert_image_to_pdf, input_file_path, out_path)
+        async def deliver(path: str, caption: str) -> None:
+            """Send a produced file, always closing the handle afterwards.
+
+            Leaving the handle open blocks deletion on Windows, which is how
+            workspace directories end up stranded on disk.
+            """
+            with open(path, "rb") as document:
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
-                    document=open(out_path, "rb"),
-                    caption=f"✅ Berhasil dikonversi ke PDF",
-                )
-            elif ext in [".docx", ".xlsx", ".pptx"]:
-                out_path = await asyncio.to_thread(convert_office_to_pdf, input_file_path, tmp_dir)
-                await context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=open(out_path, "rb"),
-                    caption=f"✅ Berhasil dikonversi ke PDF",
+                    document=document,
+                    caption=caption,
                 )
 
-            await status.delete()
-        except Exception as err:
-            logger.error("Conversion failed: %s", err, exc_info=True)
-            await status.edit_text(f"❌ Gagal melakukan konversi: {html.escape(str(err))}")
+        if ext == ".pdf":
+            if target == "docx":
+                out_path = os.path.join(workspace, f"{base_stem}.docx")
+                await asyncio.to_thread(convert_pdf_to_docx, input_file_path, out_path)
+                await deliver(out_path, "✅ Berhasil dikonversi ke Word (.docx)")
+            elif target == "xlsx":
+                out_path = os.path.join(workspace, f"{base_stem}.xlsx")
+                await asyncio.to_thread(convert_pdf_to_xlsx, input_file_path, out_path)
+                await deliver(out_path, "✅ Berhasil diekstrak ke Excel (.xlsx)")
+            elif target == "pptx":
+                out_path = os.path.join(workspace, f"{base_stem}.pptx")
+                await asyncio.to_thread(convert_pdf_to_pptx, input_file_path, out_path)
+                await deliver(out_path, "✅ Berhasil dikonversi ke PowerPoint (.pptx)")
+            elif target == "images":
+                images = await asyncio.to_thread(convert_pdf_to_images, input_file_path, workspace)
+                for image_path in images[:10]:
+                    await deliver(image_path, "🖼️ Halaman hasil render")
+        elif ext in [".jpg", ".jpeg", ".png"]:
+            out_path = os.path.join(workspace, f"{base_stem}.pdf")
+            await asyncio.to_thread(convert_image_to_pdf, input_file_path, out_path)
+            await deliver(out_path, "✅ Berhasil dikonversi ke PDF")
+        elif ext in [".docx", ".xlsx", ".pptx"]:
+            out_path = await asyncio.to_thread(convert_office_to_pdf, input_file_path, workspace)
+            await deliver(out_path, "✅ Berhasil dikonversi ke PDF")
+
+        await status.delete()
+    except Exception as err:
+        logger.error("Conversion failed: %s", err, exc_info=True)
+        await status.edit_text(f"❌ Gagal melakukan konversi: {html.escape(str(err))}")
+    finally:
+        # Drop the session entry so repeated uploads do not accumulate.
+        context.user_data.pop(f"file_{file_id}", None)
+        # The produced file has already been delivered; nothing needs to survive.
+        shutil.rmtree(workspace, ignore_errors=True)
 
 
 async def category_command(update, context):
@@ -1101,6 +1118,10 @@ async def post_shutdown(application: Application) -> None:
 
 def main() -> None:
     cleanup_downloads(DOWNLOAD_DIR)
+    # Remove conversion workspaces stranded by an earlier crash. Scoped to our
+    # own directory and to entries older than the stale threshold, so a
+    # concurrent instance's in-flight conversion is never touched.
+    cleanup_stale_workspaces()
     application = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)
