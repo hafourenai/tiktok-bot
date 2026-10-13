@@ -1,10 +1,12 @@
 import asyncio
 import json
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import downloader
 from downloader import download_instagram
 from menus import menu_content
 
@@ -15,8 +17,40 @@ def test_instagram_menu():
     assert "Carousel" in text
 
 
+@pytest.fixture
+def no_ytdlp():
+    """Force the yt-dlp path to fail so the bridge path is exercised."""
+    with patch.object(downloader, "download_with_yt_dlp",
+                      side_effect=RuntimeError("no yt-dlp support")):
+        yield
+
+
+@pytest.fixture
+def credentials():
+    with patch.dict(os.environ, {"INSTAGRAM_USERNAME": "u", "INSTAGRAM_PASSWORD": "p"}):
+        yield
+
+
+def test_instagram_prefers_ytdlp_without_credentials(tmp_path):
+    produced = tmp_path / "reel.mp4"
+    produced.write_bytes(b"video")
+    with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch.object(
+            downloader, "download_with_yt_dlp", return_value=produced) as mocked:
+        result = download_instagram("https://instagram.com/reel/BA/")
+    assert result == produced
+    assert mocked.call_count == 1
+
+
+def test_instagram_without_credentials_explains_fallback(tmp_path):
+    with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch.object(
+            downloader, "download_with_yt_dlp", side_effect=RuntimeError("boom")), \
+            patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(RuntimeError, match="tidak dikonfigurasi"):
+            download_instagram("https://instagram.com/reel/BA/")
+
+
 @pytest.mark.parametrize("media_type,extension", [("video", ".mp4"), ("photo", ".jpg")])
-def test_instagram_download_type(tmp_path, media_type, extension):
+def test_instagram_download_type(tmp_path, no_ytdlp, credentials, media_type, extension):
     response = MagicMock(returncode=0, stderr="", stdout=json.dumps({
         "status": "success", "url": "https://cdn.example/media", "mediaType": media_type,
     }))
@@ -28,14 +62,14 @@ def test_instagram_download_type(tmp_path, media_type, extension):
     assert result.read_bytes() == b"media"
 
 
-def test_instagram_login_error_is_actionable(tmp_path):
+def test_instagram_login_error_is_actionable(tmp_path, no_ytdlp, credentials):
     response = MagicMock(returncode=1, stderr="Instagram login failed.", stdout="")
     with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch("downloader.subprocess.run", return_value=response):
         with pytest.raises(RuntimeError, match="Login Instagram gagal"):
             download_instagram("https://instagram.com/reel/BA/")
 
 
-def test_instagram_credentials_required_is_distinct_from_login_failure(tmp_path):
+def test_instagram_credentials_required_is_distinct_from_login_failure(tmp_path, no_ytdlp, credentials):
     response = MagicMock(returncode=1, stderr="Instagram credentials required.", stdout="")
     with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch("downloader.subprocess.run", return_value=response):
         with pytest.raises(RuntimeError, match="credentials missing"):

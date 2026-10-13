@@ -135,14 +135,31 @@ def stalk_tiktok_user(username: str) -> dict:
 
 def download_instagram(url: str) -> Path:
     """Download one Instagram photo/video/story and return its temporary local path.
-    
-    Requires INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD environment variables.
-    Supports: Posts, Reels, Stories, Carousel (downloads first item).
+
+    Uses yt-dlp first: it needs no Instagram account for public media.
+    Falls back to the Node bridge only when the login credentials are configured.
+
+    Supports: Posts, Reels, Stories, Carousel (first item only).
     """
     from config import DOWNLOAD_DIR
     import os
-    
+
     download_dir = Path(DOWNLOAD_DIR)
+    download_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        return download_with_yt_dlp(url, download_dir)
+    except Exception as error:
+        logger.warning("yt-dlp gagal untuk Instagram: %s", error)
+
+    username = os.getenv("INSTAGRAM_USERNAME", "").strip()
+    password = os.getenv("INSTAGRAM_PASSWORD", "").strip()
+    if not username or not password:
+        raise RuntimeError(
+            "Instagram publik tidak bisa diunduh lewat yt-dlp, dan login Instagram "
+            "tidak dikonfigurasi. Set INSTAGRAM_USERNAME dan INSTAGRAM_PASSWORD di "
+            ".env untuk memakai bridge, atau ganti dengan file media yang lebih kecil."
+        )
     download_dir.mkdir(parents=True, exist_ok=True)
     bridge = Path(__file__).with_name("instagram_api_bridge.js")
     
@@ -153,8 +170,8 @@ def download_instagram(url: str) -> Path:
         text=True,
         timeout=120,
         check=False,
-        env={**os.environ, "INSTAGRAM_USERNAME": os.getenv("INSTAGRAM_USERNAME", ""),
-             "INSTAGRAM_PASSWORD": os.getenv("INSTAGRAM_PASSWORD", "")},
+        env={**os.environ, "INSTAGRAM_USERNAME": username,
+             "INSTAGRAM_PASSWORD": password},
     )
     
     if result.returncode != 0:
@@ -169,7 +186,7 @@ def download_instagram(url: str) -> Path:
             raise RuntimeError("Media ini private atau account tidak accessible")
         elif "rate limit" in lower_error:
             raise RuntimeError("Instagram rate limit. Coba lagi dalam beberapa menit")
-        elif "challenge" in error_msg.lower() or "verification" in error_msg.lower():
+        elif "challenge" in lower_error or "verification" in lower_error:
             raise RuntimeError("Instagram meminta 2FA/verifikasi keamanan. Bridge belum mendukung penyelesaian 2FA; jangan mencoba login berulang kali.")
         else:
             raise RuntimeError(f"Instagram download gagal: {error_msg}")
@@ -241,6 +258,26 @@ def get_instagram_info(url: str) -> dict:
         raise RuntimeError(data.get("message") or "Media Instagram tidak ditemukan")
     
     return data
+
+
+def download_with_yt_dlp(url: str, download_dir: Path) -> Path:
+    """Download public media with yt-dlp, which needs no account."""
+    options = {
+        "format": "best[height<=1080]/best",
+        "outtmpl": str(download_dir / f"{uuid4().hex}-%(id)s.%(ext)s"),
+        "noplaylist": True,
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "no_warnings": True,
+    }
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = Path(ydl.prepare_filename(info))
+
+    for candidate in (filename.with_suffix(".mp4"), filename.with_suffix(".jpg"), filename):
+        if candidate.exists() and candidate.stat().st_size:
+            return candidate
+    raise FileNotFoundError("yt-dlp tidak menghasilkan file media")
 
 
 def download_youtube(url: str, quality: str = "normal") -> Path:
