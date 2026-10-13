@@ -1,9 +1,7 @@
-"""PPTX reader and writer (stage T4).
+"""PPTX reader and writer.
 
-PresentationML is the most involved of the three Office formats because of its
-relationship chain: ``presentation.xml`` points at slides, each slide points at
-a layout, and the layout points at a master. This module writes a minimal but
-valid chain and reads text plus image geometry back out.
+Handles PresentationML format with minimal but valid relationship chains.
+Reads text and image geometry from slides.
 """
 
 from ._ooxml import (OoxmlError, PackageReader, PackageWriter,

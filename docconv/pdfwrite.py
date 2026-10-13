@@ -1,12 +1,7 @@
-"""PDF writer (stage T5).
+"""PDF writer for text-only fallback conversions.
 
-A minimal, deterministic PDF producer used for the Office-to-PDF text
-fallback. It uses the base-14 Courier font only, whose advance is exactly
-600/1000 for every glyph, so line wrapping is plain arithmetic and no AFM
-metric tables are needed.
-
-This writer is intentionally simple: the fallback path only needs selectable
-text with pagination, not rich styling.
+Minimal, deterministic PDF producer using base-14 Courier font.
+Suitable for fallback when rich formatting is not available.
 """
 
 import zlib

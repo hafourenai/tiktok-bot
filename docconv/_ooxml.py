@@ -1,10 +1,6 @@
-"""OOXML package plumbing shared by the Word/Excel/PowerPoint backends.
+"""OOXML package utilities for Word/Excel/PowerPoint formats.
 
-An OOXML file is a ZIP of XML parts described by ``[Content_Types].xml`` and a
-set of ``_rels`` relationship parts. Both reading and writing are handled here
-so each format module only deals with its own element vocabulary.
-
-Only the stdlib ``zipfile`` and ``xml.etree`` are used.
+Handles ZIP structure, XML parts, and relationships using only stdlib.
 """
 
 import zipfile

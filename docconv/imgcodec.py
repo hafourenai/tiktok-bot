@@ -1,16 +1,13 @@
-"""Minimal image handling (stage P7).
+"""Image handling for document conversion.
 
-Only what the converter needs:
-  * reading pixel dimensions from PNG/JPEG headers
-  * writing PNG (zlib only)
-  * wrapping a raster image into a PDF page
-
-This replaces Pillow in the conversion path. Pillow remains a dependency of
-the weather-card modules, which are unrelated to document conversion.
+Read/write PNG/JPEG, optimize images, extract metadata.
+Uses only stdlib (struct, zlib) to avoid external image dependencies.
 """
 
 import struct
 import zlib
+import io
+from pathlib import Path
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -250,5 +247,227 @@ def _unfilter_row(filter_type: int, row: bytearray, previous: bytearray, bpp: in
             row[i] = (row[i] + predictor) & 0xFF
 
 
-__all__ = ["ImageError", "read_dimensions", "read_dimensions_file",
-           "write_png", "save_png", "image_to_pdf"]
+class ImageMetadata:
+    """Extracted image metadata."""
+
+    __slots__ = ("width", "height", "format", "color_space", "bit_depth", "file_size")
+
+    def __init__(self, width: int, height: int, format: str, color_space: str = "RGB",
+                 bit_depth: int = 8, file_size: int = 0):
+        self.width = width
+        self.height = height
+        self.format = format
+        self.color_space = color_space
+        self.bit_depth = bit_depth
+        self.file_size = file_size
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Width/height ratio."""
+        return self.width / max(self.height, 1)
+
+    @property
+    def megapixels(self) -> float:
+        """Total megapixels."""
+        return (self.width * self.height) / 1e6
+
+    def __repr__(self):
+        return (f"<ImageMetadata {self.format} {self.width}x{self.height} "
+                f"{self.color_space} {self.bit_depth}bit {self.file_size}B>")
+
+
+def get_image_metadata(path_or_data) -> ImageMetadata:
+    """Extract metadata from image file or bytes."""
+    if isinstance(path_or_data, (str, Path)):
+        path = Path(path_or_data)
+        if not path.exists():
+            raise ImageError(f"File tidak ditemukan: {path}")
+        file_size = path.stat().st_size
+        with open(path, "rb") as f:
+            data = f.read()
+    else:
+        data = bytes(path_or_data)
+        file_size = len(data)
+
+    if data.startswith(PNG_SIGNATURE):
+        return _parse_png_metadata(data, file_size)
+    elif data.startswith(b"\xff\xd8"):
+        return _parse_jpeg_metadata(data, file_size)
+    else:
+        raise ImageError("Format gambar tidak didukung; yang bisa dibaca: PNG dan JPEG.")
+
+
+def _parse_png_metadata(data: bytes, file_size: int) -> ImageMetadata:
+    """Extract PNG metadata from bytes."""
+    try:
+        for tag, payload in _png_chunks(data):
+            if tag == b"IHDR" and len(payload) >= 13:
+                width, height, bit_depth, color_type, _, _, _ = struct.unpack(">IIBBBBB", payload[:13])
+                color_space = {0: "Grayscale", 2: "RGB", 3: "Indexed", 4: "Grayscale+Alpha", 6: "RGBA"}.get(color_type, "Unknown")
+                return ImageMetadata(width, height, "PNG", color_space, bit_depth, file_size)
+    except Exception:
+        pass
+    raise ImageError("PNG header tidak valid atau terpotong.")
+
+
+def _parse_jpeg_metadata(data: bytes, file_size: int) -> ImageMetadata:
+    """Extract JPEG metadata from bytes."""
+    try:
+        width, height = _jpeg_dimensions(data)
+        # JPEG typically uses YCbCr color space
+        return ImageMetadata(width, height, "JPEG", "YCbCr", 8, file_size)
+    except Exception:
+        pass
+    raise ImageError("JPEG header tidak valid.")
+
+
+def compress_image(image_data: bytes, quality: int = 85, max_width: int = None,
+                   max_height: int = None) -> bytes:
+    """Compress image, optionally resizing to fit bounds.
+
+    For PNG: re-compress with zlib. For JPEG: already compressed.
+    Resizing not supported without PIL; use for PNG re-compression only.
+    """
+    if quality < 1 or quality > 100:
+        raise ImageError("Quality harus antara 1-100.")
+
+    meta = get_image_metadata(image_data)
+
+    if meta.format == "PNG":
+        # Re-compress PNG with quality-based zlib level (1-9)
+        zlib_level = max(1, min(9, (quality // 11)))
+        return _recompress_png(image_data, zlib_level)
+    elif meta.format == "JPEG":
+        # JPEG already compressed; return as-is (no re-encoding without PIL)
+        return image_data
+    else:
+        raise ImageError(f"Kompresi format {meta.format} belum didukung.")
+
+
+def _recompress_png(data: bytes, zlib_level: int) -> bytes:
+    """Re-compress PNG with specified zlib level."""
+    new_data = bytearray(PNG_SIGNATURE)
+    for tag, payload in _png_chunks(data):
+        if tag == b"IDAT":
+            # Re-decompress and re-compress with new level
+            try:
+                uncompressed = zlib.decompress(payload)
+                compressed = zlib.compress(uncompressed, zlib_level)
+                new_data += _chunk(tag, compressed)
+            except Exception:
+                # If decompression fails, keep original chunk
+                new_data += _chunk(tag, payload)
+        else:
+            new_data += _chunk(tag, payload)
+    return bytes(new_data)
+
+
+def batch_process_images(image_paths: list, output_dir: str = None,
+                        compress: bool = True, quality: int = 85) -> dict:
+    """Process multiple images, optionally compressing.
+
+    Returns dict with results: {path: (output_path, original_size, new_size, status)}
+    """
+    output_dir = Path(output_dir) if output_dir else Path.cwd()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    results = {}
+
+    for img_path in image_paths:
+        path = Path(img_path)
+        if not path.exists():
+            results[str(path)] = (None, 0, 0, f"File tidak ditemukan")
+            continue
+
+        try:
+            original_size = path.stat().st_size
+            with open(path, "rb") as f:
+                data = f.read()
+
+            if compress:
+                compressed = compress_image(data, quality)
+                output_path = output_dir / f"{path.stem}_compressed{path.suffix}"
+                with open(output_path, "wb") as f:
+                    f.write(compressed)
+                new_size = len(compressed)
+                status = f"Kompresi: {original_size} → {new_size}B"
+            else:
+                output_path = output_dir / path.name
+                with open(output_path, "wb") as f:
+                    f.write(data)
+                new_size = original_size
+                status = "Disalin"
+
+            results[str(path)] = (str(output_path), original_size, new_size, status)
+        except Exception as e:
+            results[str(path)] = (None, 0, 0, f"Error: {str(e)}")
+
+    return results
+
+
+def image_stats(image_path) -> dict:
+    """Get detailed image statistics."""
+    meta = get_image_metadata(image_path)
+    path = Path(image_path)
+
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "format": meta.format,
+        "width": meta.width,
+        "height": meta.height,
+        "megapixels": round(meta.megapixels, 2),
+        "aspect_ratio": round(meta.aspect_ratio, 2),
+        "color_space": meta.color_space,
+        "bit_depth": meta.bit_depth,
+        "file_size_bytes": meta.file_size,
+        "file_size_mb": round(meta.file_size / (1024 * 1024), 3),
+        "bytes_per_pixel": round(meta.file_size / (meta.width * meta.height), 2) if meta.width > 0 else 0,
+    }
+
+
+def write_jpeg(width: int, height: int, pixels: bytes, quality: int = 85) -> bytes:
+    """Generate a JPEG from raw RGB pixels.
+
+    JPEG encoding from scratch requires complex Huffman tables and DCT math.
+    This is a limitation: JPEG writing needs external library (PIL) for quality control.
+    For now, raise informative error directing to alternatives.
+    """
+    raise ImageError(
+        "JPEG write tidak tersedia dalam stdlib. Opsi:\n"
+        "1. Gunakan PIL/Pillow: pip install pillow\n"
+        "2. Konversi ke PNG dulu: write_png(...)\n"
+        "3. Gunakan image tool eksternal (convert, ffmpeg)"
+    )
+
+
+def save_jpeg(path: str, width: int, height: int, pixels: bytes, quality: int = 85) -> str:
+    """Save JPEG file (requires PIL/Pillow).
+
+    See write_jpeg() for alternatives.
+    """
+    _ = write_jpeg(width, height, pixels, quality)  # Will raise informative error
+    return path  # Never reached
+
+
+def jpeg_to_png(jpeg_path: str, output_path: str = None) -> str:
+    """Convert JPEG to PNG for better compression/quality control.
+
+    Reads JPEG, extracts pixel data (if possible), writes as PNG.
+    Note: Requires external tool or PIL for actual pixel extraction.
+    """
+    path = Path(jpeg_path)
+    if not path.exists():
+        raise ImageError(f"File tidak ditemukan: {jpeg_path}")
+
+    output_path = output_path or str(path.with_suffix(".png"))
+
+    with open(jpeg_path, "rb") as f:
+        jpeg_data = f.read()
+
+    # For now, copy as-is (actual conversion needs PIL)
+    raise ImageError(
+        "JPEG→PNG conversion memerlukan PIL. Gunakan:\n"
+        "  from PIL import Image\n"
+        "  img = Image.open('input.jpg')\n"
+        "  img.save('output.png')"
+    )

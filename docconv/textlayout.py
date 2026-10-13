@@ -1,9 +1,6 @@
-"""Glyph to line to paragraph layout (stage P7).
+"""Text layout analysis for PDF content.
 
-PDF content streams give positioned glyphs but no notion of lines or words.
-This module reconstructs both:
-  * words come from horizontal gaps measured against the run's own space width
-  * lines come from clustering the baseline Y within a font-height tolerance
+Reconstructs words from horizontal gaps and lines from baseline clustering.
 """
 
 from ._content import Char, LineSegment

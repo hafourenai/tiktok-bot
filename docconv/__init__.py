@@ -1,7 +1,6 @@
-"""Pure-stdlib document conversion backends.
+"""Pure-stdlib document conversion library.
 
-The public surface is intentionally small: :func:`extract_pages` for PDF text
-and table extraction, plus the Office/OOXML writers added in later stages.
+Provides PDF text/table extraction and OOXML format writers (DOCX/XLSX/PPTX).
 """
 
 from .pdf import PageContent, PdfEncryptedError, PdfReadError, extract_pages

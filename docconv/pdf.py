@@ -1,9 +1,4 @@
-"""Public PDF text/table extraction API.
-
-``extract_pages`` is the entry point :mod:`converter` uses; it returns one
-:class:`PageContent` per page with a ``.text`` string and a ``.tables`` list of
-row/column grids.
-"""
+"""Public PDF text and table extraction API."""
 
 import logging
 

@@ -1,14 +1,7 @@
-"""Table detection heuristics (stage P8).
+"""Table detection using ruled and unruled strategies.
 
-Two strategies, in order of confidence:
-
-1. **Ruled tables** - the page draws grid lines (``re``/``m``/``l`` + stroke or
-   fill). Intersect horizontal and vertical rules into a grid, then assign glyph
-   runs to cells.
-2. **Unruled tables** - no usable rules, so look for at least three adjacent
-   lines that share two or more column boundaries.
-
-Anything ambiguous is left to the text path: a wrong table is worse than none.
+Ruled tables: detect grid lines from PDF content stream.
+Unruled tables: detect aligned column gaps across consecutive rows.
 """
 
 from ._content import LineSegment
