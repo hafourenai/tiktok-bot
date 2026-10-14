@@ -187,7 +187,19 @@ def convert_pdf_to_docx(input_path: str, output_path: str) -> str:
 
 
 def convert_pdf_to_xlsx(input_path: str, output_path: str) -> str:
-    """Convert PDF to XLSX with table detection and OCR fallback."""
+    """Convert PDF to XLSX with table detection, formatting, and OCR fallback."""
+    try:
+        from .formatted_xlsx import convert_formatted_pdf_to_xlsx
+        import pdfplumber  # noqa: F401 - optional formatting backend
+        import openpyxl  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        try:
+            return convert_formatted_pdf_to_xlsx(input_path, output_path)
+        except Exception:
+            logger.warning("Konversi XLSX berformat gagal; memakai ekstraksi teks", exc_info=True)
+    
     workspace = new_workspace(prefix="pdf-xlsx-")
     try:
         from .lib.docconv.excel import Sheet, write_xlsx
@@ -217,7 +229,19 @@ def convert_pdf_to_xlsx(input_path: str, output_path: str) -> str:
 
 
 def convert_pdf_to_pptx(input_path: str, output_path: str) -> str:
-    """Convert PDF to PPTX by rendering each page as an image."""
+    """Convert PDF to PPTX with editable content, tables, and formatting."""
+    try:
+        from .formatted_pptx import convert_formatted_pdf_to_pptx
+        import pdfplumber  # noqa: F401 - optional formatting backend
+        import pptx  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        try:
+            return convert_formatted_pdf_to_pptx(input_path, output_path)
+        except Exception:
+            logger.warning("Konversi PPTX berformat gagal; memakai render image", exc_info=True)
+
     workspace = new_workspace(prefix="pdf-pptx-")
     try:
         from .lib.docconv.imgcodec import read_dimensions_file
@@ -313,7 +337,7 @@ def _office_text_pdf(input_path: str, output_path: str) -> str:
 
 
 def convert_office_to_pdf(input_path: str, output_dir: str) -> str:
-    """Convert Office file (DOCX/XLSX/PPTX) to PDF via LibreOffice or fallback."""
+    """Convert Office file (DOCX/XLSX/PPTX) to PDF via LibreOffice, enhanced fallback, or text fallback."""
     input_path = str(Path(input_path).resolve())
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     output_path = str(Path(output_dir) / (Path(input_path).stem + ".pdf"))
@@ -331,10 +355,19 @@ def convert_office_to_pdf(input_path: str, output_dir: str) -> str:
                 if result.is_file() and result.stat().st_size:
                     shutil.copyfile(result, output_path)
                     return output_path
-                logger.warning("LibreOffice tidak menghasilkan PDF; menggunakan fallback teks")
+                logger.warning("LibreOffice tidak menghasilkan PDF; menggunakan fallback enhanced")
             except (OSError, subprocess.SubprocessError):
-                logger.warning("LibreOffice gagal; menggunakan fallback teks", exc_info=True)
+                logger.warning("LibreOffice gagal; menggunakan fallback enhanced", exc_info=True)
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
     
+    # Try enhanced fallback first
+    try:
+        from .enhanced_office_pdf import convert_office_to_enhanced_pdf
+        import reportlab  # noqa: F401
+        return convert_office_to_enhanced_pdf(input_path, output_path)
+    except Exception:
+        logger.warning("Enhanced fallback gagal; menggunakan text fallback", exc_info=True)
+    
+    # Final fallback: text-only
     return _office_text_pdf(input_path, output_path)
