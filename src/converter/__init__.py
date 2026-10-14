@@ -12,7 +12,7 @@ from .api import (
     convert_image_to_pdf,
     convert_office_to_pdf,
 )
-from .pipeline import new_workspace, cleanup_stale_workspaces
+from .pipeline import new_workspace, cleanup_stale_workspaces, STALE_WORKSPACE_SECONDS
 
 __all__ = [
     "SUPPORTED_EXTENSIONS",
@@ -24,4 +24,5 @@ __all__ = [
     "convert_office_to_pdf",
     "new_workspace",
     "cleanup_stale_workspaces",
+    "STALE_WORKSPACE_SECONDS",
 ]

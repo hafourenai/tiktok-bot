@@ -62,7 +62,8 @@ try:
         new_workspace,
     )
     HAS_CONVERTER = True
-except ImportError:
+except ImportError as e:
+    logger.exception("Converter gagal dimuat (fitur tidak tersedia): %s", e)
     SUPPORTED_EXTENSIONS = {}
     HAS_CONVERTER = False
 
@@ -647,6 +648,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await deny(update)
         return
 
+    if not HAS_CONVERTER:
+        await update.effective_message.reply_text(
+            "⚠️ <b>Fitur converter sedang tidak tersedia</b> di server ini.\n\n"
+            "Silakan hubungi administrator untuk mengaktifkan fitur konversi dokumen.\n"
+            "Detail error tercatat di log server.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     doc = update.effective_message.document
     if not doc:
         return
@@ -665,7 +675,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     file_id = doc.file_id
     options = SUPPORTED_EXTENSIONS[ext]
 
-    context.user_data[f"file_{file_id}"] = {
+    # Generate short token untuk callback_data (agar tetap < 64 byte)
+    conv_token = uuid4().hex[:12]
+    context.user_data[f"convert_{conv_token}"] = {
         "file_id": file_id,
         "file_name": file_name,
         "ext": ext,
@@ -680,7 +692,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     }
 
     buttons = [
-        [InlineKeyboardButton(labels.get(target, target.upper()), callback_data=f"convert:{file_id}:{target}")]
+        [InlineKeyboardButton(labels.get(target, target.upper()), callback_data=f"convert:{conv_token}:{target}")]
         for target in options
     ]
 
@@ -705,14 +717,16 @@ async def handle_photo_conversion(update: Update, context: ContextTypes.DEFAULT_
     photo = photos[-1]
     file_id = photo.file_id
 
-    context.user_data[f"file_{file_id}"] = {
+    # Generate short token untuk callback_data (agar tetap < 64 byte)
+    conv_token = uuid4().hex[:12]
+    context.user_data[f"convert_{conv_token}"] = {
         "file_id": file_id,
         "file_name": f"image_{file_id[:8]}.jpg",
         "ext": ".jpg",
     }
 
     buttons = [
-        [InlineKeyboardButton("📄 Convert Foto ke PDF", callback_data=f"convert:{file_id}:pdf")]
+        [InlineKeyboardButton("📄 Convert Foto ke PDF", callback_data=f"convert:{conv_token}:pdf")]
     ]
 
     await update.effective_message.reply_text(
@@ -730,12 +744,13 @@ async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if len(parts) != 3:
         return
 
-    _, file_id, target = parts
-    file_info = context.user_data.get(f"file_{file_id}")
+    _, conv_token, target = parts
+    file_info = context.user_data.get(f"convert_{conv_token}")
     if not file_info:
         await query.edit_message_text("⚠️ Sesi konversi sudah kedaluwarsa. Silakan kirim file lagi.")
         return
 
+    file_id = file_info["file_id"]
     status = await query.edit_message_text(f"⏳ Sedang mengonversi ke <b>{target.upper()}</b>...", parse_mode=ParseMode.HTML)
 
     workspace = new_workspace()
@@ -791,7 +806,7 @@ async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await status.edit_text(f"❌ Gagal melakukan konversi: {html.escape(str(err))}")
     finally:
         # Drop the session entry so repeated uploads do not accumulate.
-        context.user_data.pop(f"file_{file_id}", None)
+        context.user_data.pop(f"convert_{conv_token}", None)
         # The produced file has already been delivered; nothing needs to survive.
         shutil.rmtree(workspace, ignore_errors=True)
 

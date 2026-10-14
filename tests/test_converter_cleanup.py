@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from converter.pipeline import get_workspace, new_workspace, cleanup_stale_workspaces
 import converter
 
 
@@ -19,7 +20,8 @@ import converter
 def workspace_root(tmp_path, monkeypatch):
     """Point the converter workspace at a throwaway directory."""
     root = tmp_path / "workspace"
-    monkeypatch.setattr(converter, "get_workspace", lambda: root)
+    from converter.pipeline import get_workspace as _get_workspace
+    monkeypatch.setattr("converter.pipeline.get_workspace", lambda: root)
     return root
 
 
@@ -84,8 +86,8 @@ def test_cleanup_is_idempotent(workspace_root):
 
 def test_cleanup_with_no_workspace_directory(tmp_path, monkeypatch):
     missing = tmp_path / "never-created"
-    monkeypatch.setattr(converter, "get_workspace", lambda: missing)
-    assert converter.cleanup_stale_workspaces() == []
+    monkeypatch.setattr("converter.pipeline.get_workspace", lambda: missing)
+    assert cleanup_stale_workspaces() == []
 
 
 def test_cleanup_never_escapes_the_workspace(tmp_path, monkeypatch):
@@ -165,12 +167,13 @@ def _make_callback_context(tmp_path, monkeypatch, send_impl=None):
     bot_ctx = SimpleNamespace(get_file=AsyncMock(return_value=tg_file),
                               send_document=send)
     status = SimpleNamespace(delete=AsyncMock(), edit_text=AsyncMock())
-    query = SimpleNamespace(data="convert:FID1:docx",
+    conv_token = "abc123def456"
+    query = SimpleNamespace(data=f"convert:{conv_token}:docx",
                            answer=AsyncMock(),
                            edit_message_text=AsyncMock(return_value=status))
     update = SimpleNamespace(callback_query=query,
                              effective_chat=SimpleNamespace(id=99))
-    context = SimpleNamespace(user_data={"file_FID1": {
+    context = SimpleNamespace(user_data={f"convert_{conv_token}": {
         "file_id": "FID1", "file_name": "invoice.pdf", "ext": ".pdf"}},
                              bot=bot_ctx)
     del asyncio
@@ -180,7 +183,7 @@ def _make_callback_context(tmp_path, monkeypatch, send_impl=None):
 def test_convert_callback_cleans_up_after_success(tmp_path, monkeypatch):
     import asyncio
 
-    from docconv.pdfwrite import write_text_pdf
+    from converter.lib.docconv.pdfwrite import write_text_pdf
 
     bot, query, update, context, send, root, seen = _make_callback_context(
         tmp_path, monkeypatch)
@@ -189,6 +192,7 @@ def test_convert_callback_cleans_up_after_success(tmp_path, monkeypatch):
         write_text_pdf(["Invoice 123"], dst)
         return dst
 
+    conv_token = "abc123def456"
     monkeypatch.setattr(bot, "convert_pdf_to_docx", fake_convert)
 
     asyncio.run(bot.convert_callback(update, context))
@@ -200,7 +204,7 @@ def test_convert_callback_cleans_up_after_success(tmp_path, monkeypatch):
     # The whole workspace, input and output alike, is gone.
     assert not root.exists()
     # And the session entry is dropped, so uploads do not accumulate.
-    assert "file_FID1" not in context.user_data
+    assert f"convert_{conv_token}" not in context.user_data
 
 
 def test_convert_callback_cleans_up_after_failure(tmp_path, monkeypatch):
@@ -212,6 +216,7 @@ def test_convert_callback_cleans_up_after_failure(tmp_path, monkeypatch):
     def boom(src, dst):
         raise RuntimeError("konversi gagal")
 
+    conv_token = "abc123def456"
     monkeypatch.setattr(bot, "convert_pdf_to_docx", boom)
 
     asyncio.run(bot.convert_callback(update, context))
@@ -219,7 +224,7 @@ def test_convert_callback_cleans_up_after_failure(tmp_path, monkeypatch):
     assert send.await_count == 0
     # This is the case that used to strand the directory on Windows.
     assert not root.exists()
-    assert "file_FID1" not in context.user_data
+    assert f"convert_{conv_token}" not in context.user_data
 
 
 def test_convert_callback_cleans_up_when_send_fails(tmp_path, monkeypatch):
@@ -245,7 +250,8 @@ def test_convert_callback_cleans_up_when_send_fails(tmp_path, monkeypatch):
     asyncio.run(bot.convert_callback(update, context))
 
     assert not root.exists()
-    assert "file_FID1" not in context.user_data
+    conv_token = "abc123def456"
+    assert f"convert_{conv_token}" not in context.user_data
 
 
 def test_expired_session_is_reported_without_touching_disk(tmp_path, monkeypatch):

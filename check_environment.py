@@ -27,18 +27,17 @@ def main():
     # and only gate specific paths, so report them without failing the check.
     sys.path.insert(0, str(root))
     try:
-        import docconv
-        from docconv import extract_pages
+        from converter.lib.docconv.pdf import extract_pages
 
-        print("OK: docconv (konversi dokumen, tanpa library pihak ketiga)")
-        del extract_pages, docconv
+        print("OK: converter (konversi dokumen, tanpa library pihak ketiga)")
+        del extract_pages
     except Exception as error:
         failed = True
-        print(f"GAGAL: docconv ({type(error).__name__}: {error})")
+        print(f"GAGAL: converter ({type(error).__name__}: {error})")
     for label, module_name, finder in [
-        ("LibreOffice (Word/Excel/PPT ke PDF)", "converter", "get_libreoffice_bin"),
-        ("poppler/pdftoppm (PDF ke gambar/PPT)", "converter", "get_poppler_bin"),
-        ("tesseract (OCR halaman scan)", "ocr", "get_tesseract_bin"),
+        ("LibreOffice (Word/Excel/PPT ke PDF)", "converter.api", "get_libreoffice_bin"),
+        ("poppler/pdftoppm (PDF ke gambar/PPT)", "converter.api", "get_poppler_bin"),
+        ("tesseract (OCR halaman scan)", "converter.ocr", "get_tesseract_bin"),
     ]:
         try:
             module = importlib.import_module(module_name)

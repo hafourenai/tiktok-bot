@@ -15,7 +15,7 @@ dev = ["pytest>=8", "build>=1.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["bmkg_location_resolver*"]
+include = ["bmkg_location_resolver*", "converter*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
