@@ -1,45 +1,153 @@
 # Konversi dokumen
 
-Converter memakai paket internal `docconv`, yang hanya bergantung pada standard
-library Python. Tidak ada `pypdf`, `pdfplumber`, `reportlab`, `python-docx`,
-`openpyxl`, atau `python-pptx` — jadi tidak ada build native, tidak ada wheel
-platform-specific, dan tidak ada kebutuhan `pip` tambahan untuk konversi.
+Converter mendukung konversi multi-format antar dokumen dengan dua tier kualitas:
+
+1. **Tier 1 (Optimal):** LibreOffice headless untuk Office → PDF, pdfplumber + python-docx/openpyxl/python-pptx untuk formatted backends
+2. **Tier 2 (Enhanced fallback):** reportlab untuk Office → PDF dengan tabel & heading
+3. **Tier 3 (Basic fallback):** paket internal `docconv` dengan standard library Python saja
+
+Sistem cascade otomatis: jika tier superior gagal atau tidak tersedia, lanjut ke tier berikutnya.
+
+## Format yang didukung
+
+| Konversi | Tier 1 | Tier 2 | Tier 3 | Fitur |
+|----------|--------|--------|--------|-------|
+| **PDF → DOCX** | - | ✅ | ✅ | Font, bold, tabel, images, heading hierarchy |
+| **PDF → XLSX** | - | ✅ | ✅ | Header styling, column width, borders, cell colors |
+| **PDF → PPTX** | - | ✅ | ✅ | Editable text boxes, tables, images |
+| **PDF → Images** | - | - | ✅ | PNG 200 DPI (needs poppler) |
+| **Image → PDF** | - | - | ✅ | PNG/JPEG lossless |
+| **Office → PDF** | ✅ | ✅ | ✅ | LibreOffice best; enhanced fallback dengan tabel |
+
+## Instalasi dependencies
+
+### Requirements default (di requirements.txt)
 
 ```sh
 python -m pip install -r requirements.txt
 ```
 
-## Yang murni opsional
+Ini mencakup:
+- `python-telegram-bot` untuk bot Telegram
+- Library standar `docconv` untuk converter dasar
 
-Tiga biner eksternal. Tidak ada di `requirements.txt` karena tidak bisa
-di-pip; semuanya dideteksi saat runtime dan menampilkan pesan yang jelas bila
-belum ada.
+### Optional: Enhanced formatting backends
 
-| Biner | Dipakai untuk | Cara memasang |
-| --- | --- | --- |
-| LibreOffice (`soffice`) | Word/Excel/PPT → PDF dengan layout asli | `LIBREOFFICE_BIN` atau `soffice` di PATH |
-| poppler (`pdftoppm`) | PDF → gambar dan PDF → PPT | Windows: zip Release dari `oschwartz10612/poppler-windows`; Termux: `pkg install poppler`; lalu `POPPLER_BIN` atau PATH |
-| tesseract | OCR untuk halaman scan | `TESSERACT_BIN` atau `tesseract` di PATH |
+Untuk quality tier 2 (formatted backends dengan pdfplumber, python-docx, openpyxl, python-pptx):
 
-`python check_environment.py` menampilkan status ketiganya.
+```sh
+python -m pip install -e ".[formatted]"
+```
 
-Penting: **ekstraksi teks PDF tidak butuh poppler maupun tesseract.** Yang
-butuh hanya `pdftoppm` adalah PDF → gambar/PPT, dan hanya `tesseract` adalah OCR
-halaman scan.
+Atau manual:
 
-| Jalur | Cara kerja |
-| --- | --- |
-| Word/Excel/PPT → PDF | LibreOffice headless; fallback teks berisi sendiri dengan pembungkusan baris dan paginasi |
-| PDF → Word | Ekstraksi teks + tabel; tabel menjadi paragraf bertanda `a \| b \| c` |
-| PDF → Excel | Tabel dari geometri halaman masuk ke kolom; tanpa tabel, tiap baris teks di kolom A; satu sheet per halaman |
-| PDF → PPT | `pdftoppm` merender tiap halaman ke PNG, rasio aspek dipertahankan dan dipusatkan |
-| PDF → gambar | `pdftoppm` PNG 200 DPI |
-| Gambar → PDF | PNG disisipkan apa adanya; JPEG disisipkan lewat `/DCTDecode` tanpa dikode ulang |
+```sh
+python -m pip install pdfplumber>=0.11,<1 python-docx>=1.1,<2 openpyxl>=3.1,<4 python-pptx>=0.6,<1 reportlab>=4.0,<5
+```
+
+### Optional: External binaries
+
+Tidak ada di pip; deteksi runtime dan tampilkan pesan jika belum ada.
+
+| Biner | Dipakai untuk | Instalasi |
+|-------|-------|-----------|
+| LibreOffice (`soffice`) | Office → PDF tier 1 (best quality) | `LIBREOFFICE_BIN` env var atau `soffice` di PATH |
+| poppler (`pdftoppm`) | PDF → gambar, PDF → PPT rendering | Windows: zip dari `oschwartz10612/poppler-windows`; Termux: `pkg install poppler` |
+| tesseract | OCR halaman scan | `TESSERACT_BIN` env var atau `tesseract` di PATH |
+
+Check status: `python check_environment.py`
+
+**Penting:** PDF text extraction tidak butuh poppler/tesseract. Hanya PDF → images/PPT yang butuh poppler; hanya OCR scan pages yang butuh tesseract.
+
+## Detail setiap konversi
+
+### PDF → DOCX (Enhanced formatting)
+
+**Tier 2 fitur:**
+- ✅ Font preservation: Times New Roman, Arial, size 10-14pt
+- ✅ Bold/italic detection dari PDF fontname
+- ✅ Heading hierarchy (Heading 1, Heading 2)
+- ✅ Editable tables dengan preserved structure
+- ✅ Image embedding (JPEG signatures, logos)
+- ✅ Paragraph spacing & line spacing 1.15
+- ✅ Center-aligned titles, left-aligned body
+
+**Fallback (Tier 3):**
+- Text ekstraksi + tabel sebagai `cell | cell | cell`
+- Heading detection dari text pattern
+- Gambar tidak disertakan
+
+### PDF → XLSX (Enhanced formatting)
+
+**Tier 2 fitur:**
+- ✅ Header row styling: bold font + light gray background
+- ✅ Auto-detect column widths dari content
+- ✅ Cell borders & table structure
+- ✅ Preserve cell background colors dari PDF
+- ✅ One sheet per page
+- ✅ Proper cell alignment & wrapping
+
+**Fallback (Tier 3):**
+- Table → kolom CSV style
+- Text sebagai rows di kolom A
+- Satu sheet per halaman
+
+### PDF → PPTX (Editable content)
+
+**Tier 2 fitur:**
+- ✅ Extract text ke editable text boxes (bukan rasterization)
+- ✅ Embed tables sebagai PowerPoint objects (editable)
+- ✅ Extract images & position correctly
+- ✅ Heading detection & formatting
+- ✅ Smart layout per slide
+- ✅ Page title otomatis
+
+**Fallback (Tier 1 via poppler):**
+- Render halaman → PNG
+- Embed sebagai slide image (no text editing)
+- Maintains aspect ratio
+
+### PDF → Images
+
+**Requirements:**
+- poppler (`pdftoppm`) untuk rendering
+
+**Output:**
+- PNG 200 DPI per halaman
+- Numbered: `page-1.png`, `page-2.png`, etc.
+
+### Image → PDF
+
+**Supported formats:**
+- PNG 8-bit RGB/RGBA non-interlaced
+- JPEG baseline
+
+**Process:**
+- Lossless embedding (PNG via FlateDecode, JPEG via DCTDecode)
+- Size & quality preserved
+- Aspect ratio maintained
+
+### Office → PDF
+
+**Tier 1 (LibreOffice headless):**
+- Best quality: preserves layout, fonts, images, formatting
+- Converts DOCX, XLSX, PPTX to PDF
+
+**Tier 2 (Enhanced fallback):**
+- DOCX: detect headings, preserve tables, embed images
+- XLSX: render sheets dengan tabel structure & styling
+- PPTX: extract slide text & tables
+
+**Tier 3 (Text fallback):**
+- Extract text + flatten tables
+- Basic PDF output (Courier font)
 
 ## Keterbatasan yang perlu diketahui
 
 Bagian ini bukan daftar deficiencies yang tersembunyi, melainkan batas yang
-tidak bisa dihilangkan tanpa menulis ulang mesin rendering.
+tidak bisa dihilangkan tanpa menulis ulang mesin rendering atau tool eksternal.
+
+### PDF parsing (tier 3 dasar)
 
 - **Ekstraksi teks PDF lebih sederhana daripada pypdf.** PDF yang memakai CJK,
   ligatur, atau font subset tanpa `/ToUnicode` akan menghasilkan teks kosong
@@ -50,15 +158,40 @@ tidak bisa dihilangkan tanpa menulis ulang mesin rendering.
   maupun AES; hapus proteksi kata sandi lebih dulu.
 - **Deteksi tabel turun kualitasnya** dibanding pdfplumber. Tabel ber-grid
   (ada garis) akurat; tabel tanpa garis dideteksi dari jarak antar kata yang
-  berulang, jadi bisa salah pada dokumen dengan kolom tidak rapi. Hasil yang
-  meragukan lebih baik dibuang daripada diekspor salah.
-- **Fallback Office → PDF tidak mempertahankan gambar, grafik, atau format.**
-  Formula Excel ditampilkan sebagai teks, bukan dihitung. Font fallback
-  (Courier) hanya mendukung Latin-1, sehingga dokumen beraksara non-Latin
-  sebaiknya dikonversi lewat LibreOffice.
-- **Gambar ke PDF hanya menerima PNG 8-bit RGB/RGBA non-interlaced dan JPEG
-  baseline.** PNG 16-bit atau interlaced ditolak dengan pesan yang jelas;
-  simpan ulang sebagai JPEG.
+  berulang, jadi bisa salah pada dokumen dengan kolom tidak rapi.
+
+### Formatted backends (tier 2)
+
+- **pdfplumber limitations:** PDF dengan layout kompleks (multi-column, overlapping text) mungkin ekstraknya tidak perfect. Tabel dengan merged cells dideteksi tetapi preserved sebagai flat struktur.
+- **Font embedding:** Hanya font standard yang tersimpan di PDF dapat diextract. Custom/embedded fonts fallback ke Times New Roman atau Arial.
+- **Images:** Hanya JPEG (`DCTDecode`) yang efisien diextract; image formats lain may be skipped.
+- **PPTX table rendering:** Tables diembed sebagai native PPTX objects (editable) tetapi styling (color, border) terbatas pada basic formatting.
+
+### Office to PDF fallback (tier 2 & 3)
+
+- **Enhanced fallback (tier 2) tidak mempertahankan:**
+  - Advanced formatting (shadows, gradients, complex styles)
+  - Complex graphics atau diagrams
+  - Embedded videos atau multimedia
+  - Formula Excel hasil komputasi (ditampilkan as text)
+  - Floating objects atau text boxes dengan positioning presisi
+
+- **Text fallback (tier 3) menggunakan:**
+  - Font Courier (latin-1 support saja; non-Latin characters may fail)
+  - Tabel flattened menjadi text rows
+  - Gambar dihilangkan
+  - Layout flat tanpa spacing kompleks
+
+### Gambar ke PDF
+
+- **PNG requirements:** 8-bit RGB/RGBA, non-interlaced. PNG 16-bit atau interlaced ditolak; simpan ulang sebagai JPEG.
+- **JPEG:** Baseline JPEG saja; Progressive JPEG may fail.
+- **Size & quality:** Embedded lossless (PNG) atau compressed lossless (JPEG DCTDecode); tidak ada kompresi lossy tambahan.
+
+### Rendering (tier 1 poppler)
+
+- **PDF → Images:** Memerlukan poppler binary (`pdftoppm`). Rendering quality tergantung DPI setting.
+- **PDF → PPTX fallback:** Images bukan editable text; untuk edit content perlu tier 2 backend.
 
 ## Struktur internal
 

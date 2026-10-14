@@ -2,8 +2,38 @@
 
 ## Converter dokumen
 
-Word/Excel/PowerPoint ↔ PDF tersedia melalui menu `/converter`.
-Panduan engine, instalasi, dan batasan hasil: [docs/converter.md](docs/converter.md).
+Konversi multi-format antar dokumen dengan automatic quality tier selection:
+
+**Format yang didukung:**
+- PDF ↔ Word (DOCX) dengan preserved formatting: font type/size, tables, images, heading hierarchy
+- PDF ↔ Excel (XLSX) dengan cell styling: headers, colors, borders, column widths
+- PDF ↔ PowerPoint (PPTX) dengan editable content: text boxes, tables, images
+- PDF → Images (PNG)
+- Images (PNG/JPEG) → PDF
+- Office (DOCX/XLSX/PPTX) → PDF
+
+**Quality tiers:**
+1. **Tier 1 (Optimal):** LibreOffice headless untuk Office→PDF; pdfplumber + python-docx/openpyxl/python-pptx untuk formatted backends
+2. **Tier 2 (Enhanced):** reportlab dengan table structures, heading formatting, image embedding
+3. **Tier 3 (Basic):** Internal docconv dengan standard library (always works)
+
+Sistem cascade otomatis: jika tier superior gagal/unavailable, lanjut ke tier berikutnya.
+
+**Instalasi:**
+```bash
+# Standard (basic converter)
+pip install -r requirements.txt
+
+# Enhanced (formatted backends dengan better quality)
+pip install -e ".[formatted]"
+```
+
+**Dependencies opsional eksternal:**
+- LibreOffice: `LIBREOFFICE_BIN` env var atau `soffice` di PATH
+- poppler: `pkg install poppler` (Termux) atau download Windows release
+- tesseract: untuk OCR scan pages (Termux: `pkg install tesseract-ocr`)
+
+Detail fitur dan keterbatasan: [docs/converter.md](docs/converter.md).
 
 ## Package resolver cuaca
 
