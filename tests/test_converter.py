@@ -80,6 +80,45 @@ def test_pdf_to_docx_preserves_page_break(sample_pdf, tmp_path):
     assert 'w:type="page"' in document
 
 
+def test_pdf_to_docx_formatted_backend_is_used(sample_pdf, tmp_path, monkeypatch):
+    pytest.importorskip("pdfplumber")
+    pytest.importorskip("docx")
+    from converter import formatted
+    target = tmp_path / "formatted.docx"
+    calls = []
+
+    def fake_backend(source, output):
+        calls.append((source, output))
+        target.write_bytes(b"formatted backend")
+        return output
+
+    monkeypatch.setattr(formatted, "convert_formatted_pdf_to_docx", fake_backend)
+    assert convert_pdf_to_docx(str(sample_pdf), str(target)) == str(target)
+    assert calls == [(str(sample_pdf), str(target))]
+
+
+def test_pdf_to_docx_preserves_editable_tables_in_sample_document(tmp_path):
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "test_output" / "PPSI_4KA13_Kelompok 1_RD_V1.pdf"
+    if not source.exists():
+        pytest.skip("Dokumen contoh lokal tidak tersedia")
+    docx = pytest.importorskip("docx")
+    pytest.importorskip("pdfplumber")
+    target = tmp_path / "sample.docx"
+    convert_pdf_to_docx(str(source), str(target))
+    document = docx.Document(target)
+    assert len(document.tables) == 7
+    assert [cell.text for cell in document.tables[0].rows[0].cells] == [
+        "No.", "Nama Fitur", "Deskripsi"]
+    assert "Latar Belakang" in "\n".join(p.text for p in document.paragraphs)
+    assert any(p.alignment == 1 for p in document.paragraphs[:4])
+    signature_cells = document.tables[-1].rows[0].cells
+    assert [len(cell._tc.xpath('.//w:drawing')) for cell in signature_cells] == [1, 1]
+    assert "Anak Agung Made Agung" in signature_cells[0].text
+    assert "Alivia Diansa Hanna Ibrahim" in signature_cells[1].text
+
+
 def test_pdf_to_xlsx_creates_one_sheet_per_page(sample_pdf, tmp_path):
     target = tmp_path / "result.xlsx"
     convert_pdf_to_xlsx(str(sample_pdf), str(target))

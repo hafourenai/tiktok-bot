@@ -158,6 +158,17 @@ def _apply_ocr_fallback(input_path: str, pages: list,
 
 def convert_pdf_to_docx(input_path: str, output_path: str) -> str:
     """Convert PDF to DOCX with text extraction and OCR fallback."""
+    try:
+        from .formatted import convert_formatted_pdf_to_docx
+        import pdfplumber  # noqa: F401 - optional layout backend availability
+        import docx  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        try:
+            return convert_formatted_pdf_to_docx(input_path, output_path)
+        except Exception:
+            logger.warning("Konversi DOCX berformat gagal; memakai ekstraksi teks", exc_info=True)
     workspace = new_workspace(prefix="pdf-docx-")
     try:
         from .lib.docconv.word import write_docx
