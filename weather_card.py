@@ -12,8 +12,8 @@ from weather_art import render_weather_art
 WIDTH, HEIGHT = 1080, 1350
 INK = (33, 44, 53)
 MUTED = (94, 110, 120)
-PAPER = (249, 249, 245)
-RULE = (215, 222, 223)
+PAPER = (247, 247, 242)
+RULE = (216, 223, 220)
 
 
 def get_font(size: int, bold: bool = False):
@@ -87,6 +87,31 @@ def _forecast_rows(data, adm4_code):
     return sorted(rows, key=lambda item: item[0])
 
 
+def _paste_art(image, desc, position, size, *, is_night=False):
+    art = render_weather_art(desc or "", size=size, is_night=is_night)
+    image.paste(art, position, art)
+
+
+def _text(draw, xy, value, size, color, *, bold=False, width=None):
+    font = get_font(size, bold)
+    label = fit_text(draw, value, font, width) if width is not None else str(value)
+    draw.text(xy, label, font=font, fill=color)
+
+
+def _daily_summary(future, tz, today):
+    days = {}
+    for dt, row in future:
+        days.setdefault(dt.astimezone(tz).date(), []).append(row)
+    result = []
+    for day, periods in list(days.items())[:3]:
+        temps = [row["t"] for row in periods if isinstance(row.get("t"), (float, int)) and not isinstance(row["t"], bool)]
+        temp_range = f"{min(temps):g}–{max(temps):g}°" if temps else "—"
+        label = "Hari ini" if day == today else day.strftime("%d/%m")
+        description = next((row.get("weather_desc") for row in periods if row.get("weather_desc")), "—")
+        result.append((label, temp_range, description))
+    return result
+
+
 def generate_weather_card(data: dict, adm4_code: str, now: datetime = None) -> io.BytesIO:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -111,60 +136,66 @@ def generate_weather_card(data: dict, adm4_code: str, now: datetime = None) -> i
     image = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
     draw = ImageDraw.Draw(image)
 
-    # A single high-contrast header keeps the place, forecast time and condition together.
-    draw.rectangle((0, 0, WIDTH, 535), fill=primary)
-    draw.rectangle((0, 420, WIDTH, 535), fill=secondary)
+    # An editorial-style hero: location above a single large reading and illustration.
+    draw.rectangle((0, 0, WIDTH, 570), fill=primary)
+    draw.ellipse((675, 150, 1070, 522), fill=secondary)
+    draw.ellipse((719, 188, 1026, 496), outline=(102, 146, 150), width=2)
+    draw.rectangle((0, 524, WIDTH, 570), fill=secondary)
     white = (255, 255, 255)
-    soft = (213, 231, 231)
-    draw.text((64, 48), "PRAKIRAAN CUACA  /  BMKG", font=get_font(25, True), fill=soft)
-    draw.text((64, 104), fit_text(draw, location.get("desa"), get_font(57, True), 950), font=get_font(57, True), fill=white)
-    region = ", ".join(str(location.get(key) or "") for key in ("kecamatan", "kotkab", "provinsi"))
-    draw.text((64, 178), fit_text(draw, region, get_font(26), 950), font=get_font(26), fill=soft)
-    draw.line((64, 237, 1016, 237), fill=(114, 151, 157), width=2)
+    soft = (218, 234, 231)
+    _text(draw, (64, 40), "BMKG  /  PRAKIRAAN CUACA", 22, soft, bold=True)
+    _text(draw, (64, 95), location.get("desa"), 59, white, bold=True, width=946)
+    region = ", ".join(str(location.get(key)) for key in ("kecamatan", "kotkab", "provinsi") if location.get(key))
+    _text(draw, (64, 170), region or "Indonesia", 26, soft, width=930)
+    draw.line((64, 234, 1016, 234), fill=(126, 166, 165), width=2)
 
-    draw.text((64, 268), "PRAKIRAAN TERDEKAT", font=get_font(22, True), fill=soft)
-    draw.text((64, 302), f"{local:%d/%m/%Y}  •  {local:%H:%M} {tz_label}", font=get_font(27), fill=white)
-    draw.text((64, 356), fit_text(draw, _value(current.get("t"), "°"), get_font(92, True), 350), font=get_font(92, True), fill=white)
-    hero_icon = render_weather_art(desc, size=170)
-    image.paste(hero_icon, (815, 263), hero_icon)
-    draw.text((64, 455), fit_text(draw, desc, get_font(43, True), 925), font=get_font(43, True), fill=accent)
+    _text(draw, (64, 262), f"{local:%d/%m/%Y}  ·  {local:%H:%M} {tz_label}", 27, soft)
+    _text(draw, (50, 307), _value(current.get("t"), "°"), 160, white, bold=True, width=540)
+    _paste_art(image, desc, (700, 287), 240, is_night=is_night_time(local.hour))
+    _text(draw, (64, 528), desc, 29, accent, bold=True, width=940)
 
-    # Compact, aligned facts rather than floating icon tiles.
-    draw.text((64, 566), "KELEMBAPAN", font=get_font(21, True), fill=MUTED)
-    draw.text((64, 602), _value(current.get("hu"), "%"), font=get_font(36, True), fill=INK)
-    draw.text((410, 566), "ANGIN", font=get_font(21, True), fill=MUTED)
-    draw.text((410, 602), fit_text(draw, _value(current.get("ws"), " km/j"), get_font(32, True), 280), font=get_font(32, True), fill=INK)
-    draw.text((795, 566), "ARAH", font=get_font(21, True), fill=MUTED)
-    draw.text((795, 602), fit_text(draw, current.get("wd"), get_font(32, True), 215), font=get_font(32, True), fill=INK)
-    draw.line((64, 674, 1016, 674), fill=RULE, width=2)
+    # One quiet information band instead of three framed cards.
+    for x in (374, 710):
+        draw.line((x, 600, x, 693), fill=RULE, width=2)
+    facts = [
+        (64, "KELEMBAPAN", _value(current.get("hu"), "%"), 270),
+        (410, "KECEPATAN ANGIN", _value(current.get("ws"), " km/j"), 270),
+        (746, "ARAH ANGIN", current.get("wd") or "—", 260),
+    ]
+    for x, label, value, max_width in facts:
+        _text(draw, (x, 603), label, 20, MUTED, bold=True)
+        _text(draw, (x, 645), value, 34, INK, bold=True, width=max_width)
+    draw.line((64, 729, 1016, 729), fill=RULE, width=2)
 
-    draw.text((64, 708), "Beberapa jam ke depan", font=get_font(35, True), fill=INK)
+    _text(draw, (64, 757), "Beberapa jam ke depan", 35, INK, bold=True)
     periods = future[1:5]
-    for index, (dt, row) in enumerate(periods):
-        x = 64 + index * 242
-        draw.text((x, 780), dt.astimezone(tz).strftime("%d/%m  %H:%M"), font=get_font(22, True), fill=MUTED)
-        icon = render_weather_art(row.get("weather_desc", ""), size=70)
-        image.paste(icon, (x, 826), icon)
-        draw.text((x, 913), fit_text(draw, row.get("weather_desc"), get_font(21), 215), font=get_font(21), fill=INK)
-        draw.text((x, 949), _value(row.get("t"), "°C"), font=get_font(28, True), fill=INK)
+    if periods:
+        draw.line((108, 865, 971, 865), fill=RULE, width=4)
+        for index, (dt, row) in enumerate(periods):
+            x = 64 + index * 242
+            column_width = 220 if index == 3 else 225
+            _text(draw, (x, 815), dt.astimezone(tz).strftime("%d/%m  %H:%M"), 22, MUTED, bold=True, width=column_width)
+            draw.ellipse((x + 33, 858, x + 47, 872), fill=primary)
+            _paste_art(image, row.get("weather_desc"), (x + 2, 884), 82,
+                       is_night=is_night_time(dt.astimezone(tz).hour))
+            _text(draw, (x, 973), _value(row.get("t"), "°C"), 32, INK, bold=True, width=column_width)
+            _text(draw, (x, 1020), row.get("weather_desc"), 20, MUTED, width=column_width)
+    else:
+        _text(draw, (64, 858), "Belum ada prakiraan berikutnya.", 26, MUTED)
 
-    draw.line((64, 1012, 1016, 1012), fill=RULE, width=2)
-    draw.text((64, 1045), "Ringkasan harian", font=get_font(35, True), fill=INK)
-    days = {}
-    for dt, row in future:
-        days.setdefault(dt.astimezone(tz).date(), []).append(row)
-    for index, (day, periods) in enumerate(list(days.items())[:3]):
-        y = 1114 + index * 62
-        temps = [row["t"] for row in periods if isinstance(row.get("t"), (float, int))]
-        temp_range = f"{min(temps):g}–{max(temps):g}°C" if temps else "—"
-        label = "Hari ini" if day == now.astimezone(tz).date() else day.strftime("%d/%m/%Y")
-        draw.text((64, y), label, font=get_font(24, True), fill=INK)
-        draw.text((300, y), temp_range, font=get_font(24, True), fill=INK)
-        description = next((row.get("weather_desc") for row in periods if row.get("weather_desc")), "—")
-        draw.text((550, y), fit_text(draw, description, get_font(23), 460), font=get_font(23), fill=MUTED)
+    draw.line((64, 1086, 1016, 1086), fill=RULE, width=2)
+    _text(draw, (64, 1110), "Ringkasan harian", 32, INK, bold=True)
+    for index, (label, temp_range, description) in enumerate(
+        _daily_summary(future, tz, now.astimezone(tz).date())
+    ):
+        y = 1172 + index * 48
+        _text(draw, (64, y), label, 22, INK, bold=True, width=205)
+        _text(draw, (300, y), temp_range, 22, INK, bold=True, width=230)
+        _text(draw, (575, y), description, 21, MUTED, width=430)
 
-    draw.line((64, 1307, 1016, 1307), fill=RULE, width=2)
-    draw.text((64, 1320), "Sumber: BMKG  •  Waktu lokal " + tz_label, font=get_font(19), fill=MUTED)
+    draw.line((64, 1311, 1016, 1311), fill=RULE, width=2)
+    _text(draw, (64, 1320), "Sumber data: BMKG", 18, MUTED)
+    _text(draw, (822, 1320), "WAKTU " + tz_label, 18, MUTED, bold=True)
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=90)
     buf.seek(0)

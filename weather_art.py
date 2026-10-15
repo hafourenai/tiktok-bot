@@ -50,7 +50,7 @@ def draw_lightning(draw: ImageDraw.ImageDraw, cx: int, cy: int, color=(250, 204,
     draw.polygon(points, fill=color)
 
 
-def render_weather_art(desc: str, size: int = 90) -> Image.Image:
+def render_weather_art(desc: str, size: int = 90, is_night: bool = False) -> Image.Image:
     """Returns a transparent RGBA image containing vector-drawn weather iconography."""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -70,13 +70,21 @@ def render_weather_art(desc: str, size: int = 90) -> Image.Image:
             y = cy + int(offset_y * scale)
             draw.rounded_rectangle([cx - int(34 * scale), y, cx + int(34 * scale), y + int(4 * scale)], radius=2, fill=(209, 213, 219, 210))
     elif "cerah berawan" in text:
-        draw_sun(draw, cx - int(14 * scale), cy - int(14 * scale), r=int(18 * scale), color=(253, 204, 21, 255))
+        if is_night:
+            draw.ellipse((cx - int(35 * scale), cy - int(39 * scale), cx + int(4 * scale), cy), fill=(255, 226, 170, 255))
+            draw.ellipse((cx - int(21 * scale), cy - int(47 * scale), cx + int(12 * scale), cy - int(14 * scale)), fill=(0, 0, 0, 0))
+        else:
+            draw_sun(draw, cx - int(14 * scale), cy - int(14 * scale), r=int(18 * scale), color=(253, 204, 21, 255))
         draw_cloud(draw, cx + int(8 * scale), cy + int(8 * scale), scale=scale * 0.72, color=(245, 248, 255, 250))
     elif "berawan" in text:
         draw_cloud(draw, cx - int(8 * scale), cy - int(8 * scale), scale=scale * 0.65, color=(190, 205, 220, 200))
         draw_cloud(draw, cx + int(4 * scale), cy + int(8 * scale), scale=scale * 0.82, color=(245, 248, 255, 250))
     elif "cerah" in text:
-        draw_sun(draw, cx, cy, r=int(26 * scale), color=(253, 186, 116, 255))
+        if is_night:
+            draw.ellipse((cx - int(30 * scale), cy - int(30 * scale), cx + int(26 * scale), cy + int(26 * scale)), fill=(255, 226, 170, 255))
+            draw.ellipse((cx - int(8 * scale), cy - int(37 * scale), cx + int(36 * scale), cy + int(7 * scale)), fill=(0, 0, 0, 0))
+        else:
+            draw_sun(draw, cx, cy, r=int(26 * scale), color=(253, 186, 116, 255))
     else:
         draw_sun(draw, cx - int(12 * scale), cy - int(12 * scale), r=int(18 * scale), color=(253, 204, 21, 255))
         draw_cloud(draw, cx + int(8 * scale), cy + int(8 * scale), scale=scale * 0.7, color=(245, 248, 255, 245))
