@@ -1,6 +1,6 @@
 import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import Formats from "src/Formats.ts";
-import { Decrypter } from "built/rpgmvp-decrypter/scripts/Decrypter.js";
+import { Decrypter } from "./Decrypter.ts";
 import { changeExt } from "src/common/index.ts";
 
 class rpgmvpHandler implements FormatHandler {
