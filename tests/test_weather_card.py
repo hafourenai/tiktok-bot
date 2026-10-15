@@ -12,7 +12,7 @@ os.environ["ALLOWED_TELEGRAM_USER_ID"] = "123"
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from weather_card import generate_weather_card, is_night_time, condition_theme
-from weather_card import _forecast_rows, fit_text, get_font
+from weather_card import _forecast_rows, fit_text, get_font, PAPER
 from PIL import Image, ImageDraw
 
 
@@ -170,6 +170,15 @@ def test_long_location_and_missing_metrics_still_render():
     forecast["data"][0]["cuaca"][0][1].update(hu=None, ws=None, wd=None, weather_desc="Hujan Ringan Sampai Sedang")
     card = generate_weather_card(forecast, "31.71.03.1001", datetime(2026, 10, 14, 12, tzinfo=timezone.utc))
     assert Image.open(card).size == (1080, 1350)
+
+
+def test_illustration_stays_inside_hero_and_changes_with_condition():
+    now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+    clear = Image.open(generate_weather_card(get_mock_forecast("Cerah"), "31.71.03.1001", now))
+    rainy = Image.open(generate_weather_card(get_mock_forecast("Hujan"), "31.71.03.1001", now))
+    assert all(abs(a - b) <= 3 for a, b in zip(clear.getpixel((1, 705)), PAPER))
+    assert all(abs(a - b) <= 3 for a, b in zip(rainy.getpixel((1, 705)), PAPER))
+    assert clear.getpixel((5, 300)) != rainy.getpixel((5, 300))
 
 
 if __name__ == "__main__":

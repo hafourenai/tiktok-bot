@@ -112,6 +112,51 @@ def _daily_summary(future, tz, today):
     return result
 
 
+def _draw_scene(image, desc, night, primary, secondary, accent):
+    """Draw a quiet illustrated landscape instead of an oversized weather icon."""
+    scene = Image.new("RGB", (WIDTH, 695), primary)
+    draw = ImageDraw.Draw(scene)
+    text = (desc or "").casefold()
+    rainy = "hujan" in text or "petir" in text
+    hazy = "kabut" in text or "asap" in text
+    # A narrow, restrained sky gradient is inexpensive even on Termux.
+    for y in range(695):
+        blend = y / 694
+        color = tuple(round(a * (1 - blend) + b * blend) for a, b in zip(primary, secondary))
+        draw.line((0, y, WIDTH, y), fill=color)
+
+    sun_color = (226, 218, 177) if night else (255, 218, 149)
+    if rainy:
+        sun_color = (175, 204, 208)
+    if hazy:
+        sun_color = (210, 216, 201)
+    draw.ellipse((738, 189, 1028, 479), fill=sun_color)
+    # Simple silhouette clouds keep the illustration legible at Telegram size.
+    cloud = (118, 154, 163) if rainy else (173, 204, 197) if not night else (87, 119, 136)
+    draw.ellipse((715, 350, 871, 405), fill=cloud)
+    draw.ellipse((788, 312, 947, 406), fill=cloud)
+    draw.rounded_rectangle((734, 365, 1017, 418), radius=26, fill=cloud)
+    if rainy:
+        for x in range(770, 1010, 48):
+            draw.line((x, 438, x - 25, 484), fill=accent, width=5)
+    elif night:
+        for x, y in ((736, 160), (960, 136), (683, 292)):
+            draw.ellipse((x, y, x + 5, y + 5), fill=(236, 229, 192))
+
+    distant = (92, 132, 133) if not night else (46, 81, 99)
+    near = (42, 94, 93) if not night else (26, 65, 80)
+    draw.polygon([(0, 596), (148, 556), (285, 572), (469, 518), (611, 572),
+                  (768, 535), (957, 584), (1080, 549), (1080, 695), (0, 695)], fill=distant)
+    draw.polygon([(0, 652), (132, 619), (312, 641), (462, 593), (650, 635),
+                  (823, 592), (1080, 635), (1080, 695), (0, 695)], fill=near)
+    # Terrace lines evoke an Indonesian landscape without turning the forecast into a map.
+    ridge = (116, 157, 139) if not night else (75, 111, 123)
+    draw.arc((-74, 633, 521, 753), 187, 348, fill=ridge, width=3)
+    draw.arc((427, 616, 1176, 775), 191, 348, fill=ridge, width=3)
+    draw.arc((-145, 661, 523, 794), 187, 348, fill=ridge, width=3)
+    image.paste(scene, (0, 0))
+
+
 def generate_weather_card(data: dict, adm4_code: str, now: datetime = None) -> io.BytesIO:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -136,66 +181,62 @@ def generate_weather_card(data: dict, adm4_code: str, now: datetime = None) -> i
     image = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
     draw = ImageDraw.Draw(image)
 
-    # An editorial-style hero: location above a single large reading and illustration.
-    draw.rectangle((0, 0, WIDTH, 570), fill=primary)
-    draw.ellipse((675, 150, 1070, 522), fill=secondary)
-    draw.ellipse((719, 188, 1026, 496), outline=(102, 146, 150), width=2)
-    draw.rectangle((0, 524, WIDTH, 570), fill=secondary)
+    # Weather as a place: one uninterrupted landscape, not a stack of panels.
+    _draw_scene(image, desc, is_night_time(local.hour), primary, secondary, accent)
     white = (255, 255, 255)
     soft = (218, 234, 231)
-    _text(draw, (64, 40), "BMKG  /  PRAKIRAAN CUACA", 22, soft, bold=True)
-    _text(draw, (64, 95), location.get("desa"), 59, white, bold=True, width=946)
+    _text(draw, (64, 42), "CUACA  /  INDONESIA", 21, soft, bold=True)
+    _text(draw, (900, 42), "BMKG", 21, soft, bold=True)
+    draw.line((64, 86, 1016, 86), fill=(122, 164, 166), width=2)
+    _text(draw, (64, 108), location.get("desa"), 58, white, bold=True, width=950)
     region = ", ".join(str(location.get(key)) for key in ("kecamatan", "kotkab", "provinsi") if location.get(key))
-    _text(draw, (64, 170), region or "Indonesia", 26, soft, width=930)
-    draw.line((64, 234, 1016, 234), fill=(126, 166, 165), width=2)
+    _text(draw, (64, 177), region or "Indonesia", 25, soft, width=920)
+    _text(draw, (46, 232), _value(current.get("t"), "°"), 185, white, bold=True, width=540)
+    _text(draw, (64, 439), desc, 42, white, bold=True, width=615)
+    _text(draw, (64, 505), f"{local:%d/%m/%Y}    {local:%H:%M} {tz_label}", 27, soft)
 
-    _text(draw, (64, 262), f"{local:%d/%m/%Y}  ·  {local:%H:%M} {tz_label}", 27, soft)
-    _text(draw, (50, 307), _value(current.get("t"), "°"), 160, white, bold=True, width=540)
-    _paste_art(image, desc, (700, 287), 240, is_night=is_night_time(local.hour))
-    _text(draw, (64, 528), desc, 29, accent, bold=True, width=940)
-
-    # One quiet information band instead of three framed cards.
+    # Deliberately leave a little breathing room between landscape and readings.
     for x in (374, 710):
-        draw.line((x, 600, x, 693), fill=RULE, width=2)
+        draw.line((x, 740, x, 825), fill=RULE, width=2)
     facts = [
         (64, "KELEMBAPAN", _value(current.get("hu"), "%"), 270),
         (410, "KECEPATAN ANGIN", _value(current.get("ws"), " km/j"), 270),
         (746, "ARAH ANGIN", current.get("wd") or "—", 260),
     ]
     for x, label, value, max_width in facts:
-        _text(draw, (x, 603), label, 20, MUTED, bold=True)
-        _text(draw, (x, 645), value, 34, INK, bold=True, width=max_width)
-    draw.line((64, 729, 1016, 729), fill=RULE, width=2)
+        _text(draw, (x, 744), label, 19, MUTED, bold=True)
+        _text(draw, (x, 783), value, 34, INK, bold=True, width=max_width)
+    draw.line((64, 847, 1016, 847), fill=RULE, width=2)
 
-    _text(draw, (64, 757), "Beberapa jam ke depan", 35, INK, bold=True)
+    _text(draw, (64, 870), "Beberapa jam ke depan", 34, INK, bold=True)
     periods = future[1:5]
     if periods:
-        draw.line((108, 865, 971, 865), fill=RULE, width=4)
         for index, (dt, row) in enumerate(periods):
             x = 64 + index * 242
             column_width = 220 if index == 3 else 225
-            _text(draw, (x, 815), dt.astimezone(tz).strftime("%d/%m  %H:%M"), 22, MUTED, bold=True, width=column_width)
-            draw.ellipse((x + 33, 858, x + 47, 872), fill=primary)
-            _paste_art(image, row.get("weather_desc"), (x + 2, 884), 82,
+            if index:
+                draw.line((x - 17, 932, x - 17, 1103), fill=RULE, width=2)
+            _text(draw, (x, 937), dt.astimezone(tz).strftime("%d/%m  %H:%M"), 20, MUTED, bold=True, width=column_width)
+            _paste_art(image, row.get("weather_desc"), (x, 973), 75,
                        is_night=is_night_time(dt.astimezone(tz).hour))
-            _text(draw, (x, 973), _value(row.get("t"), "°C"), 32, INK, bold=True, width=column_width)
-            _text(draw, (x, 1020), row.get("weather_desc"), 20, MUTED, width=column_width)
+            _text(draw, (x + 82, 990), _value(row.get("t"), "°"), 34, INK, bold=True, width=130)
+            _text(draw, (x, 1063), row.get("weather_desc"), 19, MUTED, width=column_width)
     else:
-        _text(draw, (64, 858), "Belum ada prakiraan berikutnya.", 26, MUTED)
+        _text(draw, (64, 959), "Belum ada prakiraan berikutnya.", 26, MUTED)
 
-    draw.line((64, 1086, 1016, 1086), fill=RULE, width=2)
-    _text(draw, (64, 1110), "Ringkasan harian", 32, INK, bold=True)
+    draw.line((64, 1121, 1016, 1121), fill=RULE, width=2)
+    _text(draw, (64, 1140), "Ringkasan harian", 29, INK, bold=True)
     for index, (label, temp_range, description) in enumerate(
         _daily_summary(future, tz, now.astimezone(tz).date())
     ):
-        y = 1172 + index * 48
+        y = 1196 + index * 39
         _text(draw, (64, y), label, 22, INK, bold=True, width=205)
         _text(draw, (300, y), temp_range, 22, INK, bold=True, width=230)
         _text(draw, (575, y), description, 21, MUTED, width=430)
 
-    draw.line((64, 1311, 1016, 1311), fill=RULE, width=2)
-    _text(draw, (64, 1320), "Sumber data: BMKG", 18, MUTED)
-    _text(draw, (822, 1320), "WAKTU " + tz_label, 18, MUTED, bold=True)
+    draw.line((64, 1304, 1016, 1304), fill=RULE, width=2)
+    _text(draw, (64, 1314), "Sumber: BMKG  ·  Prakiraan wilayah", 18, MUTED)
+    _text(draw, (822, 1314), "WAKTU " + tz_label, 18, MUTED, bold=True)
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=90)
     buf.seek(0)
