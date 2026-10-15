@@ -12,6 +12,8 @@ os.environ["ALLOWED_TELEGRAM_USER_ID"] = "123"
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from weather_card import generate_weather_card, is_night_time, condition_theme
+from weather_card import _forecast_rows, fit_text, get_font
+from PIL import Image, ImageDraw
 
 
 def get_mock_forecast(weather_desc="Cerah", hour_offset=0):
@@ -144,6 +146,30 @@ def test_card_jpeg_quality():
     data = card.getvalue()
     assert data[:2] == b'\xff\xd8'  # JPEG start
     assert data[-2:] == b'\xff\xd9'  # JPEG end
+
+
+def test_long_labels_fit_available_width():
+    draw = ImageDraw.Draw(Image.new("RGB", (1080, 1350)))
+    font = get_font(57, True)
+    label = fit_text(draw, "Kelurahan Dengan Nama Yang Sangat Panjang Sekali", font, 950)
+    assert draw.textlength(label, font=font) <= 950
+
+
+def test_timestamps_preserve_timezone_offsets():
+    forecast = get_mock_forecast()
+    forecast["data"][0]["cuaca"] = [[{
+        "utc_datetime": "2026-10-14T12:00:00+07:00", "weather_desc": "Cerah", "t": 29,
+    }]]
+    rows = _forecast_rows(forecast, "31.71.03.1001")
+    assert rows[0][0] == datetime(2026, 10, 14, 5, tzinfo=timezone.utc)
+
+
+def test_long_location_and_missing_metrics_still_render():
+    forecast = get_mock_forecast()
+    forecast["lokasi"]["desa"] = "Kelurahan Dengan Nama Yang Sangat Panjang Sekali"
+    forecast["data"][0]["cuaca"][0][1].update(hu=None, ws=None, wd=None, weather_desc="Hujan Ringan Sampai Sedang")
+    card = generate_weather_card(forecast, "31.71.03.1001", datetime(2026, 10, 14, 12, tzinfo=timezone.utc))
+    assert Image.open(card).size == (1080, 1350)
 
 
 if __name__ == "__main__":

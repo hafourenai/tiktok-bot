@@ -47,7 +47,7 @@ def menu_content(section: str):
     elif section == "converter":
         text = (
             "📑 <b>Document & File Converter Hub</b>\n\n"
-            "Konversi berbagai format dokumen secara instan dan rapi!\n\n"
+            "Gunakan web converter untuk konversi di browser, atau kirim file ke bot untuk format berikut:\n\n"
             "<b>Format yang Didukung:</b>\n"
             "• <b>PDF ➔</b> Word (.docx), Excel (.xlsx), PowerPoint (.pptx), Gambar (.png)\n"
             "• <b>Word (.docx) ➔</b> PDF (.pdf)\n"
@@ -55,7 +55,10 @@ def menu_content(section: str):
             "• <b>Foto / Gambar (JPG/PNG) ➔</b> PDF (.pdf)\n\n"
             "💡 <i>Cukup kirimkan dokumen/file apa saja ke chat ini, bot akan memberikan tombol pilihan konversi!</i>"
         )
-        rows = [back]
+        rows = [
+            [InlineKeyboardButton("Buka Web Converter ↗", url="https://converter-web-orcin.vercel.app")],
+            back,
+        ]
     else:
         text = (
             "✨ <b>Menu Utama Honey Assistant</b>\n\n"

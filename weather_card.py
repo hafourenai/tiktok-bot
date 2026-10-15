@@ -1,272 +1,171 @@
+"""Readable BMKG forecast cards for Telegram, rendered with Pillow."""
+
 import io
-import math
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+
 from PIL import Image, ImageDraw, ImageFont
+
 from weather_art import render_weather_art
 
-UTC = timezone.utc
+
+WIDTH, HEIGHT = 1080, 1350
+INK = (33, 44, 53)
+MUTED = (94, 110, 120)
+PAPER = (249, 249, 245)
+RULE = (215, 222, 223)
+
 
 def get_font(size: int, bold: bool = False):
     paths = [
-        # Android / Termux system fonts
         "/system/fonts/Roboto-Bold.ttf" if bold else "/system/fonts/Roboto-Regular.ttf",
-        "/system/fonts/DroidSans-Bold.ttf" if bold else "/system/fonts/DroidSans.ttf",
-        # Linux standard font paths
+        "/system/fonts/NotoSans-Bold.ttf" if bold else "/system/fonts/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        # Windows font paths
         "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
     ]
-    for p in paths:
+    for path in paths:
         try:
-            return ImageFont.truetype(p, size)
-        except Exception:
+            return ImageFont.truetype(path, size)
+        except (OSError, ValueError):
             continue
     return ImageFont.load_default()
 
-def condition_theme(desc: str, is_night: bool = False):
-    """Returns (bg_top, bg_bottom, accent_color) based on weather condition and time of day."""
-    t = (desc or "").casefold()
-    
-    if is_night:
-        # Night themes
-        if "petir" in t:
-            return ((10, 12, 25), (20, 25, 45), (250, 200, 50))
-        if "hujan" in t:
-            return ((8, 18, 40), (15, 35, 65), (130, 180, 255))
-        if "kabut" in t or "asap" in t:
-            return ((25, 28, 38), (40, 45, 60), (180, 185, 195))
-        if "cerah berawan" in t:
-            return ((12, 25, 50), (25, 50, 85), (200, 180, 100))
-        if "berawan" in t:
-            return ((15, 22, 40), (28, 40, 65), (150, 160, 180))
-        return ((5, 12, 30), (18, 28, 50), (180, 200, 230))
-    else:
-        # Day themes
-        if "petir" in t:
-            return ((18, 22, 38), (35, 42, 68), (250, 204, 21))
-        if "hujan" in t:
-            return ((16, 30, 56), (28, 54, 98), (147, 197, 253))
-        if "kabut" in t or "asap" in t:
-            return ((35, 42, 52), (58, 69, 84), (209, 213, 219))
-        if "cerah berawan" in t:
-            return ((18, 52, 98), (42, 96, 172), (253, 224, 71))
-        if "berawan" in t:
-            return ((24, 34, 48), (42, 55, 75), (226, 232, 240))
-        if "cerah" in t:
-            return ((14, 68, 140), (32, 110, 180), (254, 215, 102))
-        return ((20, 42, 78), (36, 82, 145), (240, 244, 255))
 
-def draw_gradient(draw, width, height, c1, c2):
-    """Draw smooth vertical gradient."""
-    for y in range(height):
-        r = int(c1[0] + (c2[0] - c1[0]) * (y / height))
-        g = int(c1[1] + (c2[1] - c1[1]) * (y / height))
-        b = int(c1[2] + (c2[2] - c1[2]) * (y / height))
-        draw.line([(0, y), (width, y)], fill=(r, g, b))
+def fit_text(draw, text, font, max_width):
+    """Keep provider-supplied names and conditions inside their columns."""
+    text = str(text or "—")
+    if draw.textlength(text, font=font) <= max_width:
+        return text
+    while text and draw.textlength(text + "…", font=font) > max_width:
+        text = text[:-1]
+    return text + "…"
 
-def draw_glass(draw, bounds, fill=(255, 255, 255, 24), outline=(255, 255, 255, 48), radius=16):
-    """Draw frosted glass effect box."""
-    draw.rounded_rectangle(bounds, radius=radius, fill=fill, outline=outline, width=1)
 
 def is_night_time(hour: int) -> bool:
-    """Determine if current time is night (18:00-06:00)."""
     return hour >= 18 or hour < 6
 
-def generate_weather_card(data: dict, adm4_code: str, now: datetime = None) -> io.BytesIO:
-    """Generate a beautiful portrait weather card (1080x1350px) optimized for mobile."""
-    now = now or datetime.now(UTC)
-    location = data["lokasi"]
-    tz_name = location.get("timezone", "Asia/Jakarta")
-    labels = {"Asia/Jakarta": "WIB", "Asia/Makassar": "WITA", "Asia/Jayapura": "WIT"}
-    tz_label = labels.get(tz_name, "WIB")
-    tz = ZoneInfo(tz_name) if tz_name in labels else ZoneInfo("Asia/Jakarta")
 
-    entries = [e for e in data.get("data", []) if e.get("lokasi", {}).get("adm4") == adm4_code]
-    if not entries and data.get("data"):
-        entries = [data["data"][0]]
+def condition_theme(desc: str, is_night: bool = False):
+    """Return header, secondary header and highlight colors."""
+    text = (desc or "").casefold()
+    if "petir" in text:
+        return (34, 48, 63), (50, 68, 78), (255, 211, 120)
+    if "hujan" in text:
+        return (31, 65, 83), (44, 88, 105), (184, 224, 239)
+    if is_night:
+        return (18, 32, 45), (35, 52, 66), (228, 220, 173)
+    if "cerah" in text:
+        return (34, 84, 104), (47, 108, 118), (255, 216, 147)
+    return (44, 69, 78), (60, 87, 93), (213, 231, 226)
+
+
+def _value(value, unit=""):
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, (float, int)):
+        value = f"{value:g}"
+    return f"{value}{unit}"
+
+
+def _forecast_rows(data, adm4_code):
+    entries = [entry for entry in data.get("data", []) if entry.get("lokasi", {}).get("adm4") == adm4_code]
     if not entries:
         raise ValueError("Data lokasi cuaca tidak ditemukan")
-
     rows = []
     for day in entries[0].get("cuaca", []):
         for row in day:
-            utc_str = row.get("utc_datetime")
-            if utc_str:
-                dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00")).replace(tzinfo=UTC)
-                rows.append((dt, row))
-    rows.sort(key=lambda x: x[0])
+            timestamp = row.get("utc_datetime")
+            if not timestamp:
+                continue
+            try:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            rows.append((dt.astimezone(timezone.utc), row))
+    return sorted(rows, key=lambda item: item[0])
 
-    future = [r for r in rows if r[0] >= now]
+
+def generate_weather_card(data: dict, adm4_code: str, now: datetime = None) -> io.BytesIO:
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    location = data["lokasi"]
+    tz_name = location.get("timezone", "Asia/Jakarta")
+    labels = {"Asia/Jakarta": "WIB", "Asia/Makassar": "WITA", "Asia/Jayapura": "WIT"}
+    tz = ZoneInfo(tz_name if tz_name in labels else "Asia/Jakarta")
+    tz_label = labels.get(tz_name, "WIB")
+
+    rows = _forecast_rows(data, adm4_code)
+    future = [(dt, row) for dt, row in rows if dt >= now]
     if not future and rows:
         future = [rows[-1]]
     if not future:
         raise ValueError("Tidak ada prakiraan cuaca mendatang")
 
     current_dt, current = future[0]
-    desc = current.get("weather_desc", "Cerah Berawan")
-    temp = current.get("t", "--")
-    humidity = current.get("hu", "--")
-    wind_spd = current.get("ws", "--")
-    wind_dir = current.get("wd", "--")
+    local = current_dt.astimezone(tz)
+    desc = current.get("weather_desc") or "Tidak tersedia"
+    primary, secondary, accent = condition_theme(desc, is_night_time(local.hour))
+    image = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
+    draw = ImageDraw.Draw(image)
 
-    local_time = current_dt.astimezone(tz)
-    is_night = is_night_time(local_time.hour)
-    c1, c2, accent = condition_theme(desc, is_night)
+    # A single high-contrast header keeps the place, forecast time and condition together.
+    draw.rectangle((0, 0, WIDTH, 535), fill=primary)
+    draw.rectangle((0, 420, WIDTH, 535), fill=secondary)
+    white = (255, 255, 255)
+    soft = (213, 231, 231)
+    draw.text((64, 48), "PRAKIRAAN CUACA  /  BMKG", font=get_font(25, True), fill=soft)
+    draw.text((64, 104), fit_text(draw, location.get("desa"), get_font(57, True), 950), font=get_font(57, True), fill=white)
+    region = ", ".join(str(location.get(key) or "") for key in ("kecamatan", "kotkab", "provinsi"))
+    draw.text((64, 178), fit_text(draw, region, get_font(26), 950), font=get_font(26), fill=soft)
+    draw.line((64, 237, 1016, 237), fill=(114, 151, 157), width=2)
 
-    # Portrait dimensions optimized for mobile
-    WIDTH = 1080
-    HEIGHT = 1350
-    
-    # Create base with gradient background
-    base = Image.new("RGBA", (WIDTH, HEIGHT))
-    draw_bg = ImageDraw.Draw(base)
-    draw_gradient(draw_bg, WIDTH, HEIGHT, c1, c2)
+    draw.text((64, 268), "PRAKIRAAN TERDEKAT", font=get_font(22, True), fill=soft)
+    draw.text((64, 302), f"{local:%d/%m/%Y}  •  {local:%H:%M} {tz_label}", font=get_font(27), fill=white)
+    draw.text((64, 356), fit_text(draw, _value(current.get("t"), "°"), get_font(92, True), 350), font=get_font(92, True), fill=white)
+    hero_icon = render_weather_art(desc, size=170)
+    image.paste(hero_icon, (815, 263), hero_icon)
+    draw.text((64, 455), fit_text(draw, desc, get_font(43, True), 925), font=get_font(43, True), fill=accent)
 
-    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    d = ImageDraw.Draw(overlay)
+    # Compact, aligned facts rather than floating icon tiles.
+    draw.text((64, 566), "KELEMBAPAN", font=get_font(21, True), fill=MUTED)
+    draw.text((64, 602), _value(current.get("hu"), "%"), font=get_font(36, True), fill=INK)
+    draw.text((410, 566), "ANGIN", font=get_font(21, True), fill=MUTED)
+    draw.text((410, 602), fit_text(draw, _value(current.get("ws"), " km/j"), get_font(32, True), 280), font=get_font(32, True), fill=INK)
+    draw.text((795, 566), "ARAH", font=get_font(21, True), fill=MUTED)
+    draw.text((795, 602), fit_text(draw, current.get("wd"), get_font(32, True), 215), font=get_font(32, True), fill=INK)
+    draw.line((64, 674, 1016, 674), fill=RULE, width=2)
 
-    # Ambient glow effects for depth
-    d.ellipse([WIDTH - 400, -150, WIDTH + 300, 500], fill=(255, 255, 255, 15))
-    d.ellipse([-200, HEIGHT - 400, 500, HEIGHT + 300], fill=(255, 255, 255, 10))
+    draw.text((64, 708), "Beberapa jam ke depan", font=get_font(35, True), fill=INK)
+    periods = future[1:5]
+    for index, (dt, row) in enumerate(periods):
+        x = 64 + index * 242
+        draw.text((x, 780), dt.astimezone(tz).strftime("%d/%m  %H:%M"), font=get_font(22, True), fill=MUTED)
+        icon = render_weather_art(row.get("weather_desc", ""), size=70)
+        image.paste(icon, (x, 826), icon)
+        draw.text((x, 913), fit_text(draw, row.get("weather_desc"), get_font(21), 215), font=get_font(21), fill=INK)
+        draw.text((x, 949), _value(row.get("t"), "°C"), font=get_font(28, True), fill=INK)
 
-    # Font definitions
-    f_badge = get_font(18, bold=True)
-    f_loc_main = get_font(48, bold=True)
-    f_loc_sub = get_font(24, bold=False)
-    f_temp_big = get_font(120, bold=True)
-    f_temp_deg = get_font(64, bold=True)
-    f_desc = get_font(32, bold=True)
-    f_metric_lbl = get_font(18, bold=False)
-    f_metric_val = get_font(28, bold=True)
-    f_metric_sub = get_font(16, bold=False)
-    f_period_time = get_font(18, bold=True)
-    f_period_desc = get_font(14, bold=False)
-    f_period_temp = get_font(24, bold=True)
-    f_footer = get_font(16, bold=False)
-    f_summary = get_font(16, bold=False)
-
-    # Header with badge
-    draw_glass(d, (30, 30, 280, 75), fill=(255, 255, 255, 32), outline=(255, 255, 255, 60), radius=24)
-    d.text((55, 50), "🌤 BMKG", font=f_badge, fill=(255, 255, 255, 255), anchor="lm")
-
-    # Current time
-    time_str = local_time.strftime("%H:%M")
-    time_label = "Malam" if is_night else "Siang"
-    d.text((WIDTH - 40, 50), f"{time_str} {time_label}", font=f_metric_lbl, fill=(240, 245, 255, 220), anchor="rm")
-
-    # Location
-    loc_title = f"{location.get('desa', '')}, {location.get('kecamatan', '')}"
-    loc_subtitle = f"{location.get('kotkab', '')}, {location.get('provinsi', '')}"
-    d.text((40, 110), loc_title, font=f_loc_main, fill=(255, 255, 255, 255))
-    d.text((42, 175), loc_subtitle, font=f_loc_sub, fill=(210, 225, 245, 200))
-
-    # Hero weather section
-    draw_glass(d, (30, 220, WIDTH - 30, 450), fill=(255, 255, 255, 20), outline=(255, 255, 255, 50), radius=28)
-    
-    # Large weather icon
-    hero_art = render_weather_art(desc, size=140)
-    overlay.alpha_composite(hero_art, (75, 245))
-    
-    # Temperature display
-    temp_str = str(int(temp) if isinstance(temp, (int, float)) else temp)
-    d.text((280, 270), temp_str, font=f_temp_big, fill=(255, 255, 255, 255))
-    d.text((280 + len(temp_str) * 65, 280), "°C", font=f_temp_deg, fill=(255, 255, 255, 220))
-    
-    # Weather description
-    d.text((280, 395), desc, font=f_desc, fill=accent)
-
-    # Metrics row (humidity, wind, update time)
-    metrics = [
-        ("💧", f"{humidity}%", "Kelembapan"),
-        ("💨", f"{wind_spd} km/j", f"{wind_dir}"),
-        ("🕒", tz_label, "Waktu"),
-    ]
-    
-    metric_x = 40
-    metric_spacing = (WIDTH - 80) // 3
-    for icon, val, label in metrics:
-        box_left = metric_x + (metrics.index((icon, val, label))) * metric_spacing
-        draw_glass(d, (box_left, 470, box_left + metric_spacing - 20, 560), 
-                   fill=(255, 255, 255, 18), outline=(255, 255, 255, 40), radius=18)
-        d.text((box_left + metric_spacing // 2 - 10, 490), icon, font=f_metric_lbl, fill=(255, 255, 255, 200))
-        d.text((box_left + metric_spacing // 2 - 10, 515), val, font=f_metric_val, fill=(255, 255, 255, 255), anchor="mm")
-        d.text((box_left + metric_spacing // 2 - 10, 540), label, font=f_metric_sub, fill=(180, 200, 230, 180), anchor="mm")
-
-    # Forecast section header
-    d.text((40, 590), "Prakiraan Berikutnya", font=f_loc_sub, fill=(255, 255, 255, 240))
-
-    # Timeline cards (horizontal scroll simulation - 4 cards)
-    timeline_items = future[1:5] if len(future) > 1 else future[:1]
-    card_width = (WIDTH - 80) // 4
-    card_height = 150
-    
-    for idx, (f_dt, f_row) in enumerate(timeline_items):
-        card_x = 40 + idx * (card_width + 10)
-        card_y = 630
-        
-        draw_glass(d, (card_x, card_y, card_x + card_width - 5, card_y + card_height), 
-                   fill=(255, 255, 255, 24), outline=(255, 255, 255, 45), radius=16)
-        
-        f_time = f_dt.astimezone(tz).strftime("%H:%M")
-        f_desc_short = f_row.get("weather_desc", "Cerah")[:10]
-        f_temp = f_row.get("t", "--")
-        
-        d.text((card_x + card_width // 2 - 2, card_y + 10), f_time, 
-               font=f_period_time, fill=(220, 235, 255, 230), anchor="mm")
-        
-        # Mini icon
-        mini_art = render_weather_art(f_desc_short, size=50)
-        overlay.alpha_composite(mini_art, (card_x + card_width // 2 - 25, card_y + 35))
-        
-        d.text((card_x + card_width // 2 - 2, card_y + 95), f_desc_short, 
-               font=f_period_desc, fill=(255, 255, 255, 210), anchor="mm")
-        d.text((card_x + card_width // 2 - 2, card_y + 120), f"{f_temp}°C", 
-               font=f_period_temp, fill=(255, 255, 255, 255), anchor="mm")
-
-    # Daily summary section
-    d.text((40, 810), "Ringkasan Harian", font=f_loc_sub, fill=(255, 255, 255, 240))
-    
-    # Group forecasts by day
-    from datetime import timedelta
+    draw.line((64, 1012, 1016, 1012), fill=RULE, width=2)
+    draw.text((64, 1045), "Ringkasan harian", font=get_font(35, True), fill=INK)
     days = {}
-    for f_dt, f_row in future:
-        day = f_dt.astimezone(tz).date()
-        days.setdefault(day, []).append((f_dt, f_row))
-    
-    summary_y = 860
-    for day_idx, (day, periods) in enumerate(list(days.items())[:3]):
-        if day_idx >= 3:
-            break
-        
-        temps = [p[1].get("t") for p in periods if isinstance(p[1].get("t"), (int, float))]
-        temp_range = f"{min(temps):.0f}–{max(temps):.0f}°C" if temps else "N/A"
-        
-        conditions = list(dict.fromkeys(p[1].get("weather_desc", "Cerah") for p in periods))
-        condition_text = ", ".join(conditions[:2])
-        
-        day_label = "Hari ini" if day == now.astimezone(tz).date() else f"{day.strftime('%a, %d %b')}"
-        
-        draw_glass(d, (30, summary_y, WIDTH - 30, summary_y + 90), 
-                   fill=(255, 255, 255, 15), outline=(255, 255, 255, 35), radius=14)
-        
-        d.text((50, summary_y + 15), day_label, font=f_metric_val, fill=(255, 255, 255, 255))
-        d.text((50, summary_y + 50), temp_range, font=f_metric_lbl, fill=(255, 255, 255, 220))
-        d.text((50, summary_y + 70), condition_text, font=f_summary, fill=(200, 220, 245, 200))
-        
-        summary_y += 100
+    for dt, row in future:
+        days.setdefault(dt.astimezone(tz).date(), []).append(row)
+    for index, (day, periods) in enumerate(list(days.items())[:3]):
+        y = 1114 + index * 62
+        temps = [row["t"] for row in periods if isinstance(row.get("t"), (float, int))]
+        temp_range = f"{min(temps):g}–{max(temps):g}°C" if temps else "—"
+        label = "Hari ini" if day == now.astimezone(tz).date() else day.strftime("%d/%m/%Y")
+        draw.text((64, y), label, font=get_font(24, True), fill=INK)
+        draw.text((300, y), temp_range, font=get_font(24, True), fill=INK)
+        description = next((row.get("weather_desc") for row in periods if row.get("weather_desc")), "—")
+        draw.text((550, y), fit_text(draw, description, get_font(23), 460), font=get_font(23), fill=MUTED)
 
-    # Footer
-    footer_y = HEIGHT - 60
-    d.text((40, footer_y), "Sumber: BMKG • Lokasi: wilayah.id & OpenStreetMap", 
-           font=f_footer, fill=(255, 255, 255, 150))
-    d.text((WIDTH - 40, footer_y), "🍯 Honey Bot", 
-           font=f_footer, fill=(255, 255, 255, 150), anchor="ra")
-
-    # Compose and save
-    final_image = Image.alpha_composite(base, overlay).convert("RGB")
+    draw.line((64, 1307, 1016, 1307), fill=RULE, width=2)
+    draw.text((64, 1320), "Sumber: BMKG  •  Waktu lokal " + tz_label, font=get_font(19), fill=MUTED)
     buf = io.BytesIO()
-    final_image.save(buf, format="JPEG", quality=92)
+    image.save(buf, format="JPEG", quality=90)
     buf.seek(0)
     return buf
