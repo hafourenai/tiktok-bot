@@ -35,7 +35,9 @@ export interface LocationInfo {
 
 const BMKG_BASE_URL = "https://data.bmkg.go.id/api";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org";
-const WILAYAH_API = "https://wilayah.id/api";
+// Keep wilayah.id requests same-origin. The upstream API does not allow
+// browser cross-origin requests, so Vercel (and Vite in development) proxy it.
+const WILAYAH_API = "/api/wilayah";
 
 /**
  * Get weather data by coordinates (latitude, longitude)

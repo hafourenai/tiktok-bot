@@ -9,7 +9,16 @@ const isolationHeaders = {
 };
 
 export default defineConfig({
-  server: { headers: isolationHeaders, watch: { ignored: ["**/.cache/**"] } },
+  server: {
+    headers: isolationHeaders,
+    watch: { ignored: ["**/.cache/**"] },
+    proxy: {
+      "/api/wilayah": {
+        target: "https://wilayah.id",
+        changeOrigin: true,
+      },
+    },
+  },
   preview: { headers: isolationHeaders },
   publicDir: "public",
   optimizeDeps: {
