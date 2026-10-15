@@ -1,7 +1,7 @@
 {
-  "buildCommand": "bun run build:assemble --all && bun run build",
+  "buildCommand": "bun run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "devCommand": "npm run dev",
-  "installCommand": "npm install"
+  "devCommand": "bun run dev",
+  "installCommand": "bun install"
 }
