@@ -1,0 +1,4 @@
+bunx lint-staged
+bun run build:check
+bun run build:assemble --all
+bunx tsc
