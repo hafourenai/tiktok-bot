@@ -7,8 +7,8 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 class pdfToDocxHandler implements FormatHandler {
   public readonly name = "pdfToDocx";
   public supportedFormats = [
-    Formats.PDF.builder("pdf").from().lossless(),
-    Formats.DOCX.builder("docx").to().lossless(),
+    Formats.PDF.builder("pdf").lossless().from(),
+    Formats.DOCX.builder("docx").lossless().to(),
   ];
   public ready = false;
 

@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import ConversionPage from "./Conversion";
+import ConversionPage from "./index";
 import WeatherViewer from "src/ui/components/Weather/WeatherViewer";
 import "./TabbedPage.css";
 
