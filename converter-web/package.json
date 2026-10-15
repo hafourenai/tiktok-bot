@@ -14,7 +14,7 @@
     "build:patch": "bun run scripts/build.ts patch",
     "build:add": "bun run scripts/build.ts add",
     "dev": "vite",
-    "build": "bun run build:assemble --all --force && tsc && vite build",
+    "build": "bun run build:assemble --all && tsc && vite build",
     "cache:build": "bun run buildCache.js dist/cache.json --minify",
     "cache:build:dev": "bun run buildCache.js dist/cache.json",
     "preview": "vite preview",
