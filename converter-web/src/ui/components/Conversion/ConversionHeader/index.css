@@ -1,16 +1,17 @@
 .conversion-header {
-  height: 56px;
+  height: 64px;
   background: var(--bg-card);
   border-block-end: 1px solid var(--border-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.25rem;
+  padding: 0 clamp(1rem, 2.5vw, 2rem);
   z-index: 20;
   flex-shrink: 0;
   position: sticky;
   top: 0;
   gap: 1rem;
+  box-shadow: inset 0 3px 0 #f05a3c;
 
   .header-left {
     display: flex;

@@ -1,7 +1,7 @@
 import { render } from "preact";
 
 import UploadPage from "./pages/Upload";
-import TabbedPage from "./pages/Conversion/TabbedPage";
+import ConversionPage from "./pages/Conversion";
 import { initTheme } from "./ThemeStore";
 import Popup from "./components/Popup";
 import FullPageDropOverlay from "./components/FullPageDropOverlay";
@@ -15,7 +15,7 @@ console.log("Rendering UI");
 function App() {
   return (
     <>
-      {CurrentPage.value === Pages.Conversion && <TabbedPage />}
+      {CurrentPage.value === Pages.Conversion && <ConversionPage />}
       {CurrentPage.value === Pages.Upload && <UploadPage />}
       <FullPageDropOverlay />
       <Popup />

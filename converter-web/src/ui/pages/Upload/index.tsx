@@ -75,45 +75,71 @@ export default function UploadPage() {
       <div className="upload-card">
         <div className="upload-card-header">
           <Logo showName={true} size={36} onClick={handleLogoClick} />
+          <span className="local-processing">Runs locally in your browser</span>
         </div>
 
-        <div
-          className={`upload-dropzone ${!formatsReady ? "upload-dropzone--pending" : ""}`}
-          onClick={handleClick}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              if (!formatsReady) return;
-              fileRef.current?.click();
-            }
-          }}
-        >
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            name="uploadFile"
-            id="uploadFile"
-            onClick={(ev) => ev.stopPropagation()}
-            tabIndex={0}
-            disabled={!formatsReady}
-            onChange={handleChange}
-          />
-          <div className="upload-icon-wrap">
-            <Upload />
+        <div className="upload-card-body">
+          <section className="upload-intro" aria-labelledby="upload-title">
+            <span className="upload-eyebrow">Universal file converter</span>
+            <h1 id="upload-title">
+              Change the format.
+              <br />
+              Keep the file.
+            </h1>
+            <p>
+              Convert documents, images, audio, video, and more without sending your files to a
+              server.
+            </p>
+            <div className="upload-features" aria-label="Converter benefits">
+              <span>On-device</span>
+              <span>No uploads</span>
+              <span>Batch ready</span>
+            </div>
+          </section>
+
+          <div className="upload-workspace">
+            <div
+              className={`upload-dropzone ${!formatsReady ? "upload-dropzone--pending" : ""}`}
+              onClick={handleClick}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  if (!formatsReady) return;
+                  fileRef.current?.click();
+                }
+              }}
+            >
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                name="uploadFile"
+                id="uploadFile"
+                onClick={(ev) => ev.stopPropagation()}
+                tabIndex={0}
+                disabled={!formatsReady}
+                onChange={handleChange}
+              />
+              <div className="upload-icon-wrap">
+                <Upload />
+              </div>
+              <span className="upload-cta">
+                {window.matchMedia("(pointer: coarse)").matches ? "Choose a file" : "Choose files"}
+              </span>
+              <span className="upload-hint">
+                {window.matchMedia("(pointer: coarse)").matches
+                  ? "Select one or several files"
+                  : "or drop them anywhere on this page"}
+              </span>
+              <span className="upload-shortcut">You can also paste from your clipboard</span>
+            </div>
+
+            <div className="upload-card-actions">
+              <HelpButton />
+            </div>
           </div>
-          <span className="upload-cta">
-            {window.matchMedia("(pointer: coarse)").matches ? "Tap" : "Click"} to select a file
-          </span>
-          <span className="upload-hint">
-            {window.matchMedia("(pointer: coarse)").matches ? "" : "or drag and drop"}
-          </span>
-        </div>
-
-        <div className="upload-card-actions">
-          <HelpButton />
         </div>
       </div>
 

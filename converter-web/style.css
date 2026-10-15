@@ -1,6 +1,6 @@
 :root {
   /* Globals */
-  --primary: #2383e2;
+  --primary: #165dff;
   --primary-transparent: color-mix(in srgb, var(--primary) 30%, transparent);
   --selection-color: color-mix(in srgb, var(--primary) 14%, transparent);
   --danger: #ef4444;
@@ -9,28 +9,28 @@
   --log-plugin: #9333ea;
 
   /* Background */
-  --bg-page: #ffffff;
-  --bg-card: #ffffff;
-  --bg-card-alt: #f7f7f5;
-  --bg-card-alt-hover: #efefed;
-  --bg-section: #f7f7f5;
+  --bg-page: #f3f0e8;
+  --bg-card: #fffdf8;
+  --bg-card-alt: #f6f2e8;
+  --bg-card-alt-hover: #eee8dc;
+  --bg-section: #ebe7dd;
   --bg-input: #ffffff;
   --bg-light: #eaeaec;
   --bg-overlay: rgba(0, 0, 0, 0.4);
 
   /* Text */
   --text-on-primary: #ffffff;
-  --text-primary: #37352f;
-  --text-secondary: #787774;
-  --text-tertiary: #9b9a97;
-  --text-muted: #9b9a97;
+  --text-primary: #17213a;
+  --text-secondary: #5e6472;
+  --text-tertiary: #858a94;
+  --text-muted: #858a94;
 
   /* Border */
-  --border-primary: #eaeaec;
-  --border-secondary: #d3d3d5;
+  --border-primary: #dcd6c9;
+  --border-secondary: #c4bdaf;
 
   /* Button */
-  --btn-border: #eaeaec;
+  --btn-border: #dcd6c9;
 
   scrollbar-color: var(--border-secondary) transparent;
 }
@@ -40,27 +40,27 @@
   --log-plugin: #a855f7;
 
   /* Background */
-  --bg-page: #191919;
-  --bg-card: #202020;
-  --bg-card-alt: #252525;
-  --bg-card-alt-hover: #2f2f2f;
-  --bg-section: #252525;
-  --bg-input: #202020;
-  --bg-light: #373737;
+  --bg-page: #111725;
+  --bg-card: #182033;
+  --bg-card-alt: #20293d;
+  --bg-card-alt-hover: #29344a;
+  --bg-section: #20293d;
+  --bg-input: #182033;
+  --bg-light: #303b51;
   --bg-overlay: rgba(0, 0, 0, 0.6);
 
   /* Text */
-  --text-primary: rgba(255, 255, 255, 0.81);
-  --text-secondary: rgba(255, 255, 255, 0.44);
-  --text-tertiary: rgba(255, 255, 255, 0.28);
-  --text-muted: rgba(255, 255, 255, 0.28);
+  --text-primary: #f5f1e8;
+  --text-secondary: #aeb7ca;
+  --text-tertiary: #7f899f;
+  --text-muted: #7f899f;
 
   /* Border */
-  --border-primary: #373737;
-  --border-secondary: #4d4d4d;
+  --border-primary: #303b51;
+  --border-secondary: #46526a;
 
   /* Button */
-  --btn-border: #373737;
+  --btn-border: #303b51;
 }
 
 html {

@@ -1,8 +1,8 @@
 .styled-button {
   appearance: none;
   border: 1px solid var(--btn-border);
-  border-radius: 8px;
-  padding: 0.55rem 0.85rem;
+  border-radius: 2px;
+  padding: 0.62rem 0.95rem;
   color: var(--text-secondary);
   background: var(--bg-card);
   transition:
@@ -44,7 +44,9 @@
 
     &:hover,
     &:focus-visible {
-      opacity: 0.9;
+      opacity: 1;
+      transform: translateY(-1px);
+      box-shadow: 3px 3px 0 color-mix(in srgb, var(--primary) 28%, transparent);
     }
   }
 

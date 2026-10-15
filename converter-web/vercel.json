@@ -3,11 +3,5 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "devCommand": "bun run dev",
-  "installCommand": "bun install",
-  "rewrites": [
-    {
-      "source": "/api/wilayah/:path*",
-      "destination": "https://wilayah.id/api/:path*"
-    }
-  ]
+  "installCommand": "bun install"
 }
