@@ -17,7 +17,7 @@ from .pipeline import new_workspace, cleanup_stale_workspaces
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {
-    ".pdf": ["docx", "xlsx", "pptx", "images"],
+    ".pdf": ["docx", "xlsx", "pptx", "images", "compress_light", "compress_medium", "compress_high"],
     ".docx": ["pdf"], ".xlsx": ["pdf"], ".pptx": ["pdf"],
     ".jpg": ["pdf"], ".jpeg": ["pdf"], ".png": ["pdf"],
 }

@@ -172,12 +172,45 @@ def _make_callback_context(tmp_path, monkeypatch, send_impl=None):
                            answer=AsyncMock(),
                            edit_message_text=AsyncMock(return_value=status))
     update = SimpleNamespace(callback_query=query,
-                             effective_chat=SimpleNamespace(id=99))
+                             effective_user=SimpleNamespace(id=bot.ALLOWED_USER_ID),
+                             effective_chat=SimpleNamespace(id=99, type="private"))
     context = SimpleNamespace(user_data={f"convert_{conv_token}": {
         "file_id": "FID1", "file_name": "invoice.pdf", "ext": ".pdf"}},
                              bot=bot_ctx)
     del asyncio
     return bot, query, update, context, send, root, seen
+
+
+def test_compress_callback_sends_smaller_pdf_and_cleans_up(tmp_path, monkeypatch):
+    import asyncio
+
+    bot, query, update, context, send, root, seen = _make_callback_context(tmp_path, monkeypatch)
+    query.data = "convert:abc123def456:compress_medium"
+
+    def fake_compress(src, dst, level):
+        assert level == "medium"
+        assert Path(src).read_bytes().startswith(b"%PDF-")
+        Path(dst).write_bytes(b"%PDF-1.4 small")
+        return 1024, 14
+
+    monkeypatch.setattr(bot, "compress_pdf", fake_compress)
+    asyncio.run(bot.convert_callback(update, context))
+    assert seen["sent"] == b"%PDF-1.4 small"
+    assert "hemat" in send.call_args.kwargs["caption"]
+    assert not root.exists()
+    assert context.user_data == {}
+
+
+def test_compress_callback_does_not_send_larger_pdf(tmp_path, monkeypatch):
+    import asyncio
+
+    bot, query, update, context, send, root, seen = _make_callback_context(tmp_path, monkeypatch)
+    query.data = "convert:abc123def456:compress_high"
+    monkeypatch.setattr(bot, "compress_pdf", lambda src, dst, level: (100, 120))
+    asyncio.run(bot.convert_callback(update, context))
+    send.assert_not_awaited()
+    query.edit_message_text.return_value.edit_text.assert_awaited()
+    assert not root.exists()
 
 
 def test_convert_callback_cleans_up_after_success(tmp_path, monkeypatch):

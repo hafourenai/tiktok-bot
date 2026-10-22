@@ -39,6 +39,7 @@ from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
 from voice_stats import VoiceStatsStore
 from menus import menu_content, menu_commands
+from src.converter.compress import compress_pdf
 from bmkg_location_resolver import WeatherError, WeatherService, RegionSelectionRequired
 from bmkg_location_resolver.resolver import match_region, normalized_name, region_code_pattern
 from bmkg_location_resolver.telegram import coordinates_from_message
@@ -661,7 +662,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not doc:
         return
 
-    file_name = doc.file_name or "document"
+    file_name = (doc.file_name or "document").replace("\\", "/").rsplit("/", 1)[-1]
     ext = os.path.splitext(file_name)[1].lower()
 
     if ext not in SUPPORTED_EXTENSIONS:
@@ -670,6 +671,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "Format yang didukung: <b>PDF, DOCX, XLSX, PPTX, JPG, PNG</b>.",
             parse_mode=ParseMode.HTML,
         )
+        return
+
+    if doc.file_size and doc.file_size > MAX_FILE_SIZE_BYTES:
+        await update.effective_message.reply_text("⚠️ File melebihi batas ukuran yang diizinkan.")
         return
 
     file_id = doc.file_id
@@ -689,6 +694,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "pptx": "📽️ PowerPoint (.pptx)",
         "images": "🖼️ Ekstrak Gambar",
         "pdf": "📄 Convert to PDF",
+        "compress_light": "🗜️ Kompres PDF — Ringan",
+        "compress_medium": "🗜️ Kompres PDF — Sedang",
+        "compress_high": "🗜️ Kompres PDF — Tinggi",
     }
 
     buttons = [
@@ -697,8 +705,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     ]
 
     await update.effective_message.reply_text(
-        f"📄 <b>File Diterima:</b> <code>{file_name}</code>\n"
-        f"Ukuran: {round(doc.file_size / 1024, 1)} KB\n\n"
+        f"📄 <b>File Diterima:</b> <code>{html.escape(file_name)}</code>\n"
+        f"Ukuran: {round((doc.file_size or 0) / 1024, 1)} KB\n\n"
         "Pilih format tujuan konversi di bawah ini:",
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=ParseMode.HTML,
@@ -738,6 +746,9 @@ async def handle_photo_conversion(update: Update, context: ContextTypes.DEFAULT_
 
 async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    if not is_allowed(update):
+        await query.answer("Akses ditolak.", show_alert=True)
+        return
     await query.answer()
 
     parts = query.data.split(":", 2)
@@ -750,14 +761,22 @@ async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text("⚠️ Sesi konversi sudah kedaluwarsa. Silakan kirim file lagi.")
         return
 
+    if target not in SUPPORTED_EXTENSIONS.get(file_info["ext"], []):
+        await query.edit_message_text("⚠️ Pilihan proses tidak valid.")
+        return
+
     file_id = file_info["file_id"]
     status = await query.edit_message_text(f"⏳ Sedang mengonversi ke <b>{target.upper()}</b>...", parse_mode=ParseMode.HTML)
 
     workspace = new_workspace()
-    input_file_path = os.path.join(workspace, file_info["file_name"])
+    input_file_path = os.path.join(workspace, "input" + file_info["ext"])
     try:
         tg_file = await context.bot.get_file(file_id)
+        if getattr(tg_file, "file_size", None) and tg_file.file_size > MAX_FILE_SIZE_BYTES:
+            raise ValueError("File melebihi batas ukuran yang diizinkan.")
         await tg_file.download_to_drive(input_file_path)
+        if os.path.getsize(input_file_path) > MAX_FILE_SIZE_BYTES:
+            raise ValueError("File melebihi batas ukuran yang diizinkan.")
 
         base_stem = Path(file_info["file_name"]).stem
         ext = file_info["ext"]
@@ -776,7 +795,16 @@ async def convert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 )
 
         if ext == ".pdf":
-            if target == "docx":
+            if target.startswith("compress_"):
+                level = target.removeprefix("compress_")
+                out_path = os.path.join(workspace, f"{base_stem}_compressed.pdf")
+                before, after = await asyncio.to_thread(compress_pdf, input_file_path, out_path, level)
+                if after >= before:
+                    await status.edit_text("ℹ️ PDF ini sudah optimal; kompresi tidak mengurangi ukurannya. File asli tetap tersedia di chat.")
+                    return
+                saved = (before - after) / before * 100
+                await deliver(out_path, f"✅ PDF terkompresi ({level}): {before / 1024:.1f} KB → {after / 1024:.1f} KB (hemat {saved:.1f}%)")
+            elif target == "docx":
                 out_path = os.path.join(workspace, f"{base_stem}.docx")
                 await asyncio.to_thread(convert_pdf_to_docx, input_file_path, out_path)
                 await deliver(out_path, "✅ Berhasil dikonversi ke Word (.docx)")

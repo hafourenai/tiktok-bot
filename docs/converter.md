@@ -18,6 +18,7 @@ Sistem cascade otomatis: jika tier superior gagal atau tidak tersedia, lanjut ke
 | **PDF → Images** | - | - | ✅ | PNG 200 DPI (needs poppler) |
 | **Image → PDF** | - | - | ✅ | PNG/JPEG lossless |
 | **Office → PDF** | ✅ | ✅ | ✅ | LibreOffice best; enhanced fallback dengan tabel |
+| **PDF → PDF terkompresi** | Ghostscript | - | - | Pilihan ringan/sedang/tinggi; hanya dikirim bila lebih kecil |
 
 ## Instalasi dependencies
 
@@ -54,6 +55,9 @@ Tidak ada di pip; deteksi runtime dan tampilkan pesan jika belum ada.
 | LibreOffice (`soffice`) | Office → PDF tier 1 (best quality) | `LIBREOFFICE_BIN` env var atau `soffice` di PATH |
 | poppler (`pdftoppm`) | PDF → gambar, PDF → PPT rendering | Windows: zip dari `oschwartz10612/poppler-windows`; Termux: `pkg install poppler` |
 | tesseract | OCR halaman scan | `TESSERACT_BIN` env var atau `tesseract` di PATH |
+| Ghostscript (`gs`) | Kompres PDF | Termux: `pkg install ghostscript`; opsi `GHOSTSCRIPT_BIN` |
+
+Kirim PDF ke bot dan pilih tombol kompresi. Pemrosesan lokal dibatasi 3 menit; file sementara dihapus setelah pengiriman. PDF yang sudah optimal tidak dikirim ulang. Kompresi tingkat tinggi dapat menurunkan kualitas gambar; periksa hasil sebelum dipakai.
 
 Check status: `python check_environment.py`
 

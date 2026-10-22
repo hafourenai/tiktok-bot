@@ -50,6 +50,7 @@ def menu_content(section: str):
             "Gunakan web converter untuk konversi di browser, atau kirim file ke bot untuk format berikut:\n\n"
             "<b>Format yang Didukung:</b>\n"
             "• <b>PDF ➔</b> Word (.docx), Excel (.xlsx), PowerPoint (.pptx), Gambar (.png)\n"
+            "• <b>PDF ➔</b> Kompres ukuran (ringan, sedang, tinggi; perlu Ghostscript di server)\n"
             "• <b>Word (.docx) ➔</b> PDF (.pdf)\n"
             "• <b>Excel (.xlsx) ➔</b> PDF (.pdf)\n"
             "• <b>Foto / Gambar (JPG/PNG) ➔</b> PDF (.pdf)\n\n"
