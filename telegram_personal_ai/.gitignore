@@ -1,0 +1,13 @@
+.env
+data/
+logs/
+*.session
+*.session-journal
+*.session-shm
+*.session-wal
+*.db
+*.db-shm
+*.db-wal
+*.gguf
+__pycache__/
+.pytest_cache/

@@ -18,3 +18,8 @@ data/
 build/
 dist/
 *.egg-info/
+*.session
+*.session-journal
+*.session-shm
+*.session-wal
+*.gguf

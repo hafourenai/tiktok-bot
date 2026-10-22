@@ -1,0 +1,19 @@
+from enum import StrEnum
+
+
+class ConversationState(StrEnum):
+    CONSENT_REQUIRED = "CONSENT_REQUIRED"
+    IDLE = "IDLE"
+    WAITING = "WAITING"
+    AI_PROCESSING = "AI_PROCESSING"
+    AI_ACTIVE = "AI_ACTIVE"
+    HUMAN_ACTIVE = "HUMAN_ACTIVE"
+    AI_DISABLED = "AI_DISABLED"
+
+
+class JobStatus(StrEnum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    SENT = "SENT"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
