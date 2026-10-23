@@ -35,14 +35,13 @@ class Storage:
                 );
                 CREATE TABLE IF NOT EXISTS conversations (
                     chat_id INTEGER PRIMARY KEY,
-                    state TEXT NOT NULL DEFAULT 'CONSENT_REQUIRED',
-                    consent_status INTEGER NOT NULL DEFAULT 0,
-                    consent_updated_at TEXT,
+                    state TEXT NOT NULL DEFAULT 'AI_DISABLED',
+                    ai_enabled INTEGER NOT NULL DEFAULT 0,
+                    enabled_at TEXT,
                     last_incoming_at TEXT,
                     last_manual_reply_at TEXT,
                     latest_message_id INTEGER,
                     message_version INTEGER NOT NULL DEFAULT 0,
-                    consent_notice_sent INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS pending_jobs (
@@ -70,9 +69,17 @@ class Storage:
                     created_at TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}'
                 );
             """)
-            self._db.execute(
-                "INSERT OR IGNORE INTO settings(key,value) VALUES('global_enabled','1')"
-            )
+            # Migration: add ai_enabled/enabled_at columns to existing databases
+            for col, definition in (
+                ("ai_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                ("enabled_at", "TEXT"),
+            ):
+                try:
+                    self._db.execute(
+                        f"ALTER TABLE conversations ADD COLUMN {col} {definition}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
 
     def ensure_chat(self, chat_id: int) -> sqlite3.Row:
         with self._lock, self._db:
@@ -87,28 +94,18 @@ class Storage:
     def conversation(self, chat_id: int) -> sqlite3.Row:
         return self.ensure_chat(chat_id)
 
-    def set_consent(self, chat_id: int, active: bool) -> None:
-        state = ConversationState.IDLE if active else ConversationState.AI_DISABLED
+    def set_chat_enabled(self, chat_id: int, enabled: bool) -> None:
+        """Enable or disable AI for a specific chat. Called from admin CLI only."""
+        state = ConversationState.IDLE if enabled else ConversationState.AI_DISABLED
         with self._lock, self._db:
             self.ensure_chat(chat_id)
             self._db.execute(
-                "UPDATE conversations SET consent_status=?,consent_updated_at=?,state=?,"
+                "UPDATE conversations SET ai_enabled=?,enabled_at=?,state=?,"
                 "message_version=message_version+1,updated_at=? WHERE chat_id=?",
-                (int(active), now(), state, now(), chat_id),
+                (int(enabled), now() if enabled else None, state, now(), chat_id),
             )
             self._clear_chat_locked(chat_id)
-            self.audit(chat_id, "CONSENT_GRANTED" if active else "CONSENT_REVOKED")
-
-    def mark_notice(self, chat_id: int) -> bool:
-        with self._lock, self._db:
-            row = self.ensure_chat(chat_id)
-            if row["consent_notice_sent"]:
-                return False
-            self._db.execute(
-                "UPDATE conversations SET consent_notice_sent=1,updated_at=? WHERE chat_id=?",
-                (now(), chat_id),
-            )
-            return True
+            self.audit(chat_id, "AI_ENABLED" if enabled else "AI_DISABLED")
 
     def buffer_message(self, chat_id: int, message_id: int, body: str, limit: int) -> int:
         with self._lock, self._db:
@@ -156,8 +153,6 @@ class Storage:
             )
             if not cursor.rowcount:
                 return False
-            # Safest policy: invalidate and purge the whole debounce batch when any
-            # constituent message is withdrawn.
             self._db.execute("DELETE FROM message_buffer WHERE chat_id=?", (chat_id,))
             self._db.execute(
                 "UPDATE pending_jobs SET status=?,updated_at=? WHERE chat_id=? AND status IN (?,?)",
@@ -190,8 +185,7 @@ class Storage:
             valid = self._db.execute(
                 "SELECT 1 FROM conversations c JOIN pending_jobs j ON j.chat_id=c.chat_id "
                 "WHERE j.job_id=? AND c.chat_id=? AND j.status=? AND c.message_version=? "
-                "AND c.consent_status=1 AND c.state=? AND "
-                "(SELECT value FROM settings WHERE key='global_enabled')='1'",
+                "AND c.ai_enabled=1 AND c.state=?",
                 (job_id, chat_id, JobStatus.PENDING, version, ConversationState.WAITING),
             ).fetchone()
             if not valid:
@@ -211,8 +205,7 @@ class Storage:
             return bool(self._db.execute(
                 "SELECT 1 FROM conversations c JOIN pending_jobs j ON j.chat_id=c.chat_id "
                 "WHERE j.job_id=? AND c.chat_id=? AND j.status=? AND c.message_version=? "
-                "AND c.consent_status=1 AND c.state=? AND "
-                "(SELECT value FROM settings WHERE key='global_enabled')='1'",
+                "AND c.ai_enabled=1 AND c.state=?",
                 (job_id, chat_id, JobStatus.PROCESSING, version, ConversationState.AI_PROCESSING),
             ).fetchone())
 
@@ -243,7 +236,7 @@ class Storage:
     def resume(self, chat_id: int) -> None:
         with self._lock, self._db:
             row = self.ensure_chat(chat_id)
-            state = ConversationState.IDLE if row["consent_status"] else ConversationState.CONSENT_REQUIRED
+            state = ConversationState.IDLE if row["ai_enabled"] else ConversationState.AI_DISABLED
             self._db.execute(
                 "UPDATE conversations SET state=?,updated_at=? WHERE chat_id=?",
                 (state, now(), chat_id),
@@ -260,22 +253,6 @@ class Storage:
                 (ConversationState.IDLE, now(), ConversationState.WAITING, ConversationState.AI_PROCESSING),
             )
             self._db.execute("DELETE FROM message_buffer")
-
-    def global_enabled(self) -> bool:
-        with self._lock:
-            row = self._db.execute("SELECT value FROM settings WHERE key='global_enabled'").fetchone()
-            return bool(row and row[0] == "1")
-
-    def set_global(self, active: bool) -> None:
-        with self._lock, self._db:
-            self._db.execute(
-                "UPDATE settings SET value=? WHERE key='global_enabled'", (str(int(active)),)
-            )
-            if not active:
-                self._db.execute(
-                    "UPDATE pending_jobs SET status=?,updated_at=? WHERE status IN (?,?)",
-                    (JobStatus.CANCELLED, now(), JobStatus.PENDING, JobStatus.PROCESSING),
-                )
 
     def delay(self, default: int) -> int:
         with self._lock:
@@ -295,7 +272,8 @@ class Storage:
     def list_chats(self) -> list[sqlite3.Row]:
         with self._lock:
             return self._db.execute(
-                "SELECT chat_id,state,consent_status,updated_at FROM conversations ORDER BY updated_at DESC"
+                "SELECT chat_id,state,ai_enabled,enabled_at,updated_at "
+                "FROM conversations ORDER BY updated_at DESC"
             ).fetchall()
 
     def audit(self, chat_id: int | None, event_type: str, metadata: dict | None = None) -> None:

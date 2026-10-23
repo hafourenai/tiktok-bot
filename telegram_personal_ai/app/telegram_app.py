@@ -15,6 +15,9 @@ from .storage import Storage
 
 log = logging.getLogger(__name__)
 
+# Delay antara percobaan reconnect: 10 s, 30 s, 60 s, 120 s, lalu tetap 120 s
+_RECONNECT_DELAYS = [10, 30, 60, 120]
+
 
 class TelegramAssistantApp:
     def __init__(self, settings: Settings):
@@ -24,7 +27,16 @@ class TelegramAssistantApp:
         self.storage.cancel_all_stale_jobs()
         self.rag = RagEngine(self.storage, settings.knowledge_dir)
         self.llm = LlmClient(settings)
-        self.client = TelegramClient(str(settings.session_path), settings.api_id, settings.api_hash)
+        self.client = TelegramClient(
+            str(settings.session_path),
+            settings.api_id,
+            settings.api_hash,
+            # Beri batas waktu koneksi dan request yang lebih toleran untuk jaringan mobile
+            connection_retries=5,
+            retry_delay=10,
+            timeout=30,
+            request_retries=3,
+        )
         self._system_sends: set[int] = set()
         self._system_message_ids: set[tuple[int, int]] = set()
         self.service = AssistantService(settings, self.storage, self.rag, self.llm, self.send_system)
@@ -79,21 +91,52 @@ class TelegramAssistantApp:
 
     async def run(self) -> None:
         try:
-            await self.client.start()
-            me = await self.client.get_me()
-            count = self.rag.reindex()
-            log.info("Terhubung sebagai account_id=%s; %s chunk knowledge aktif", me.id, count)
-            cli_task = None
-            if self.settings.admin_cli:
-                cli_task = asyncio.create_task(
-                    AdminCli(self.storage, self.rag, self.client.disconnect).run()
-                )
-            await self.client.run_until_disconnected()
-            if cli_task:
-                cli_task.cancel()
+            await self._run_with_reconnect()
         except AuthKeyError as exc:
             raise RuntimeError("Session Telegram tidak valid atau telah dicabut") from exc
         finally:
             await self.service.shutdown()
             await self.llm.close()
             self.storage.close()
+
+    async def _run_with_reconnect(self) -> None:
+        attempt = 0
+        while True:
+            try:
+                await self.client.start()
+                me = await self.client.get_me()
+                count = self.rag.reindex()
+                log.info(
+                    "Terhubung sebagai account_id=%s; %s chunk knowledge aktif", me.id, count
+                )
+                attempt = 0  # reset setelah berhasil konek
+                cli_task = None
+                if self.settings.admin_cli:
+                    cli_task = asyncio.create_task(
+                        AdminCli(self.storage, self.rag, self.client.disconnect).run()
+                    )
+                await self.client.run_until_disconnected()
+                if cli_task:
+                    cli_task.cancel()
+                # Disconnect bersih (misalnya exit dari CLI), hentikan loop
+                return
+            except AuthKeyError:
+                raise
+            except (OSError, ConnectionError) as exc:
+                # "Network is unreachable" dan sejenisnya
+                delay = _RECONNECT_DELAYS[min(attempt, len(_RECONNECT_DELAYS) - 1)]
+                log.warning(
+                    "Koneksi terputus (%s). Mencoba ulang dalam %s detik...", exc, delay
+                )
+                self.storage.cancel_all_stale_jobs()
+                await asyncio.sleep(delay)
+                attempt += 1
+            except Exception as exc:
+                delay = _RECONNECT_DELAYS[min(attempt, len(_RECONNECT_DELAYS) - 1)]
+                log.warning(
+                    "Error tidak terduga (%s: %s). Mencoba ulang dalam %s detik...",
+                    type(exc).__name__, exc, delay,
+                )
+                self.storage.cancel_all_stale_jobs()
+                await asyncio.sleep(delay)
+                attempt += 1

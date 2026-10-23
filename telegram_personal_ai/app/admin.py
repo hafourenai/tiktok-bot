@@ -41,18 +41,35 @@ class AdminCli:
                 continue
             try:
                 if command[0] == "help":
-                    print("status | enable | disable | set-delay N | list-chats | pause-chat ID | resume-chat ID | reindex | exit")
-                elif command[0] == "status":
-                    print(f"enabled={self.storage.global_enabled()}")
-                elif command[0] in {"enable", "disable"}:
-                    self.storage.set_global(command[0] == "enable")
+                    print(
+                        "list-chats                — lihat semua chat dan statusnya\n"
+                        "enable-chat <CHAT_ID>     — aktifkan AI untuk chat tersebut\n"
+                        "disable-chat <CHAT_ID>    — nonaktifkan AI untuk chat tersebut\n"
+                        "pause-chat <CHAT_ID>      — jeda chat (human mode)\n"
+                        "resume-chat <CHAT_ID>     — lanjutkan chat yang dijeda\n"
+                        "set-delay <DETIK>         — ubah delay balasan AI\n"
+                        "reindex                   — indeks ulang knowledge\n"
+                        "exit                      — matikan aplikasi"
+                    )
+                elif command[0] == "list-chats":
+                    rows = self.storage.list_chats()
+                    if not rows:
+                        print("Belum ada chat yang tercatat.")
+                    for row in rows:
+                        enabled = "aktif" if row["ai_enabled"] else "nonaktif"
+                        print(
+                            f"chat_id={row['chat_id']}  ai={enabled}"
+                            f"  state={row['state']}  updated={row['updated_at']}"
+                        )
+                elif command[0] == "enable-chat" and len(command) == 2:
+                    self.storage.set_chat_enabled(int(command[1]), True)
+                    print("OK")
+                elif command[0] == "disable-chat" and len(command) == 2:
+                    self.storage.set_chat_enabled(int(command[1]), False)
                     print("OK")
                 elif command[0] == "set-delay" and len(command) == 2:
                     self.storage.set_delay(int(command[1]))
                     print("OK")
-                elif command[0] == "list-chats":
-                    for row in self.storage.list_chats():
-                        print(dict(row))
                 elif command[0] == "pause-chat" and len(command) == 2:
                     self.storage.human_handoff(int(command[1]), "ADMIN_PAUSED")
                     print("OK")

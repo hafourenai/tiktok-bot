@@ -7,13 +7,15 @@ akun membalas.
 ## Fitur
 
 - Login akun pribadi MTProto (bukan BotFather) dan session lokal.
-- Consent `/aiaktif`, pencabutan `/aimati`, dan handoff `/human`.
+- Aktivasi AI per chat hanya dari CLI Termux — pengguna tidak bisa mengaktifkan sendiri.
+- Setiap balasan AI ditutup dengan penanda `---\nBalasan otomatis AI`.
 - State per chat dan pending job persisten di SQLite.
 - Debounce pesan, message versioning, serta validasi ulang sebelum kirim.
 - Deteksi balasan manual dari perangkat Telegram mana pun.
 - RAG TXT/Markdown menggunakan SQLite FTS5.
 - Satu inferensi pada satu waktu dan endpoint OpenAI-compatible.
-- CLI owner lokal: `status`, `enable`, `disable`, `set-delay`, `list-chats`,
+- Reconnect otomatis saat jaringan terputus (Network is Unreachable).
+- CLI owner lokal: `list-chats`, `enable-chat`, `disable-chat`, `set-delay`,
   `pause-chat`, `resume-chat`, `reindex`, dan `exit`.
 - Isi pesan tidak masuk log; buffer pesan dihapus setelah selesai, revoke, handoff, atau restart.
 
@@ -102,14 +104,41 @@ LLM_TEMPERATURE=0.2
 `--threads 4` dapat disesuaikan dengan perangkat. Model dan performa tetap perlu diuji langsung
 di Termux; proyek tidak mengklaim sudah diuji pada semua Android.
 
-## Alur chat
+## CLI Termux
 
-1. DM pertama tanpa consent tidak disimpan/diproses dan hanya menerima pemberitahuan satu kali.
-2. Pengirim mengetik `/aiaktif`.
-3. Pesan berikutnya ditampung sementara dan timer diperbarui untuk setiap pesan baru.
-4. Balasan manual owner mengubah state menjadi `HUMAN_ACTIVE` dan membatalkan job.
-5. Owner mengaktifkan kembali melalui CLI `resume-chat <chat_id>`.
-6. `/aimati` menghapus buffer dan menonaktifkan AI untuk chat tersebut.
+Setelah `python main.py` berjalan, ketik di prompt `ai-admin>`:
+
+```text
+list-chats                    — lihat semua chat dan statusnya
+enable-chat <CHAT_ID>         — aktifkan AI untuk chat tersebut
+disable-chat <CHAT_ID>        — nonaktifkan AI untuk chat tersebut
+pause-chat <CHAT_ID>          — jeda (human mode)
+resume-chat <CHAT_ID>         — lanjutkan setelah jeda
+set-delay <DETIK>             — ubah delay balasan (default 180 s)
+reindex                       — indeks ulang knowledge
+exit                          — matikan aplikasi
+```
+
+Gunakan `list-chats` untuk menemukan `CHAT_ID` setelah orang pertama kali mengirim DM.
+
+## Best practice jaringan di Termux (Network is Unreachable)
+
+Android dapat memutus koneksi saat layar mati atau memindahkan jaringan (WiFi ↔ data).
+Langkah untuk meminimalkan putus koneksi:
+
+- Jalankan `termux-wake-lock` sebelum `python main.py`.
+- Nonaktifkan optimasi baterai untuk Termux di **Pengaturan → Baterai**.
+- Jalankan di dalam `tmux` agar sesi tidak hilang jika Termux pindah ke background.
+- Aplikasi sudah dilengkapi reconnect otomatis dengan backoff 10 → 30 → 60 → 120 detik.
+  Job yang tertunda dibatalkan saat reconnect agar tidak mengirim balasan basi.
+- Jika sering putus, set `TG_TIMEOUT_SECONDS=60` di `.env` untuk timeout yang lebih toleran.
+2. Pemilik menjalankan `enable-chat <CHAT_ID>` dari CLI Termux.
+3. Pesan berikutnya ditampung dan timer diperbarui untuk setiap pesan baru.
+4. Setelah delay, AI menghasilkan balasan berdasarkan knowledge dan mengirimnya dengan
+   penanda `---\nBalasan otomatis AI`.
+5. Balasan manual pemilik mengubah state menjadi `HUMAN_ACTIVE` dan membatalkan job AI.
+6. Pemilik dapat menjeda chat dengan `pause-chat` dan melanjutkan dengan `resume-chat`.
+7. `disable-chat` menonaktifkan AI untuk chat tersebut dan menghapus buffer.
 
 ## Testing
 
@@ -124,6 +153,8 @@ untuk login/2FA, event dari perangkat lain, FloodWait, jaringan putus, dan peril
 ## Troubleshooting
 
 - **`TG_API_ID ... wajib diisi`**: salin `.env.example` menjadi `.env`, lalu isi kredensial.
+- **Network is Unreachable**: jalankan `termux-wake-lock`, nonaktifkan optimasi baterai
+  untuk Termux, dan gunakan `tmux`. Aplikasi akan reconnect otomatis.
 - **Remote endpoint ditolak**: set `LLM_ALLOW_REMOTE=true` hanya setelah memahami implikasi privasi.
 - **LLM timeout/offline**: pengguna menerima fallback dan chat masuk human handoff.
 - **Session revoked**: hentikan aplikasi, pindahkan session lama ke tempat aman, lalu login ulang.

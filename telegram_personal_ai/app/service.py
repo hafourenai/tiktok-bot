@@ -16,6 +16,8 @@ from .storage import Storage
 log = logging.getLogger(__name__)
 Sender = Callable[[int, str], Awaitable[None]]
 
+AI_FOOTER = "\n---\nBalasan otomatis AI"
+
 
 class AssistantService:
     def __init__(
@@ -30,48 +32,10 @@ class AssistantService:
         self.tasks: dict[int, asyncio.Task] = {}
 
     async def incoming(self, chat_id: int, message_id: int, text: str) -> None:
-        command = text.strip().casefold()
-        if command == "/aiaktif":
-            self.cancel(chat_id)
-            self.storage.set_consent(chat_id, True)
-            remote_note = (
-                " Pesan yang disetujui dapat dikirim ke server AI eksternal."
-                if self.settings.allow_remote_llm else " Pemrosesan model dilakukan secara lokal."
-            )
-            await self.sender(
-                chat_id,
-                "🤖 Asisten AI: Persetujuan aktif. Jika pemilik belum menjawab, pesan teks "
-                "akan diproses untuk membuat balasan." + remote_note
-                + " Ketik /aimati untuk mencabut persetujuan atau /human untuk meminta pemilik akun.",
-            )
-            return
-        if command == "/aimati":
-            self.cancel(chat_id)
-            self.storage.set_consent(chat_id, False)
-            await self.sender(chat_id, "🤖 Asisten AI: Persetujuan dicabut dan data pesan sementara dihapus.")
-            return
-        if command == "/human":
-            self.cancel(chat_id)
-            self.storage.human_handoff(chat_id, "USER_REQUESTED_HUMAN")
-            await self.sender(chat_id, "🤖 Asisten AI: Baik, percakapan diteruskan kepada pemilik akun.")
-            return
-
         row = self.storage.conversation(chat_id)
-        if not row["consent_status"]:
-            if self.storage.mark_notice(chat_id):
-                remote_note = (
-                    " Pemrosesan menggunakan server AI eksternal yang dikonfigurasi pemilik."
-                    if self.settings.allow_remote_llm else " Pemrosesan dilakukan oleh AI lokal."
-                )
-                await self.sender(
-                    chat_id,
-                    "🤖 Asisten AI tersedia saat pemilik akun belum membalas. Pesan ini belum "
-                    "diproses AI." + remote_note + " Ketik /aiaktif untuk menyetujui atau abaikan pesan ini.",
-                )
+        if not row["ai_enabled"]:
             return
-        if not self.storage.global_enabled() or row["state"] in {
-            ConversationState.HUMAN_ACTIVE, ConversationState.AI_DISABLED
-        }:
+        if row["state"] in {ConversationState.HUMAN_ACTIVE, ConversationState.AI_DISABLED}:
             return
 
         if self.storage.is_duplicate_message(chat_id, message_id, text[: self.settings.max_buffer_chars]):
@@ -112,8 +76,8 @@ class AssistantService:
                 self.storage.human_handoff(chat_id, "RAG_NO_MATCH")
                 await self.sender(
                     chat_id,
-                    "🤖 Asisten AI: Saya tidak memiliki informasi yang cukup dalam basis pengetahuan. "
-                    "Pesan ini diteruskan kepada pemilik akun.",
+                    "Tidak ada informasi yang cocok dalam basis pengetahuan. "
+                    "Pesan ini diteruskan kepada pemilik akun." + AI_FOOTER,
                 )
                 return
             try:
@@ -122,13 +86,11 @@ class AssistantService:
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 log.warning("LLM tidak tersedia (%s)", type(exc).__name__)
                 llm_failed = True
-                answer = (
-                    "Sistem AI sedang tidak tersedia. Pesan Anda akan menunggu pemilik akun."
-                )
+                answer = "Sistem AI sedang tidak tersedia. Pesan ini diteruskan ke pemilik akun."
             if not self.storage.can_send(job_id, chat_id, version):
                 return
             sources = ", ".join(sorted({item["source"] for item in contexts}))
-            await self.sender(chat_id, f"🤖 Asisten AI:\n{answer}\n\nSumber: {sources}")
+            await self.sender(chat_id, f"{answer}\n\nSumber: {sources}{AI_FOOTER}")
             self.storage.finish_job(job_id, chat_id, True)
             if llm_failed:
                 self.storage.human_handoff(chat_id, "LLM_UNAVAILABLE")
