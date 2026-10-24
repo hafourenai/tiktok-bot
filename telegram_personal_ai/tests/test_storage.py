@@ -60,3 +60,44 @@ def test_resume_keeps_disabled_when_ai_not_enabled(storage):
     storage.ensure_chat(21)
     storage.resume(21)
     assert storage.conversation(21)["state"] == ConversationState.AI_DISABLED
+
+
+def test_manual_reply_pauses_ai_temporarily(storage):
+    """Manual reply mengeset state=HUMAN_ACTIVE, ai_enabled tetap 1."""
+    storage.set_chat_enabled(100, True)
+    version = storage.buffer_message(100, 1, "pesan", 5)
+    job = storage.create_job(100, version, "2099-01-01T00:00:00+00:00")
+    assert storage.claim_job(job, 100, version)
+    
+    # Manual reply
+    storage.human_handoff(100, "HUMAN_REPLY")
+    row = storage.conversation(100)
+    assert row["ai_enabled"] == 1  # tetap enabled
+    assert row["state"] == ConversationState.HUMAN_ACTIVE
+    assert storage.messages(100, 100) == ""
+
+
+def test_auto_resume_from_human_active(storage):
+    """auto_resume mengubah state dari HUMAN_ACTIVE ke IDLE."""
+    storage.set_chat_enabled(101, True)
+    storage.human_handoff(101, "HUMAN_REPLY")
+    assert storage.conversation(101)["state"] == ConversationState.HUMAN_ACTIVE
+    
+    # Auto resume
+    storage.auto_resume(101)
+    row = storage.conversation(101)
+    assert row["state"] == ConversationState.IDLE
+    assert row["ai_enabled"] == 1  # masih enabled
+
+
+def test_admin_pause_still_uses_resume(storage):
+    """pause-chat dengan resume-chat harus tetap bekerja normal."""
+    storage.set_chat_enabled(103, True)
+    storage.human_handoff(103, "ADMIN_PAUSED")
+    row = storage.conversation(103)
+    assert row["state"] == ConversationState.HUMAN_ACTIVE
+    assert row["ai_enabled"] == 1  # masih enabled
+    
+    # resume mengembalikan ke IDLE
+    storage.resume(103)
+    assert storage.conversation(103)["state"] == ConversationState.IDLE

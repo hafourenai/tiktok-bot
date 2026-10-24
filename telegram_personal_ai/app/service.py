@@ -35,8 +35,12 @@ class AssistantService:
         row = self.storage.conversation(chat_id)
         if not row["ai_enabled"]:
             return
-        if row["state"] in {ConversationState.HUMAN_ACTIVE, ConversationState.AI_DISABLED}:
+        if row["state"] == ConversationState.AI_DISABLED:
             return
+        
+        # Auto-resume dari HUMAN_ACTIVE ke IDLE untuk proses pesan
+        if row["state"] == ConversationState.HUMAN_ACTIVE:
+            self.storage.auto_resume(chat_id)
 
         if self.storage.is_duplicate_message(chat_id, message_id, text[: self.settings.max_buffer_chars]):
             return

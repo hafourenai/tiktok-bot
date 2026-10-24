@@ -147,3 +147,80 @@ def test_disable_chat_stops_ai(storage, tmp_path):
         await service.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_manual_reply_pauses_ai_temporarily(storage, tmp_path):
+    """Setelah pemilik reply manual, state=HUMAN_ACTIVE tapi ai_enabled tetap 1."""
+    async def scenario():
+        cfg = settings(tmp_path)
+        cfg.knowledge_dir.mkdir()
+        (cfg.knowledge_dir / "kb.txt").write_text("Layanan buka hari Senin.", encoding="utf-8")
+        rag = RagEngine(storage, cfg.knowledge_dir)
+        rag.reindex()
+        sent = []
+
+        async def sender(chat_id, text):
+            sent.append((chat_id, text))
+
+        storage.set_chat_enabled(6, True)
+        service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
+
+        # Pesan pertama masuk
+        await service.incoming(6, 1, "Kapan layanan buka?")
+        await asyncio.sleep(1.1)
+        assert len(sent) == 1
+
+        # Pemilik reply manual
+        service.manual_reply(6)
+        row = storage.conversation(6)
+        assert row["ai_enabled"] == 1  # tetap enabled
+        assert row["state"] == ConversationState.HUMAN_ACTIVE
+
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_auto_resume_on_new_message_after_manual_reply(storage, tmp_path):
+    """Pesan baru setelah manual reply auto-resume dan diproses AI."""
+    async def scenario():
+        cfg = settings(tmp_path)
+        cfg.knowledge_dir.mkdir()
+        (cfg.knowledge_dir / "kb.txt").write_text("Layanan buka hari Senin.", encoding="utf-8")
+        rag = RagEngine(storage, cfg.knowledge_dir)
+        rag.reindex()
+        sent = []
+
+        async def sender(chat_id, text):
+            sent.append((chat_id, text))
+
+        storage.set_chat_enabled(7, True)
+        service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
+
+        # Pesan pertama masuk
+        await service.incoming(7, 1, "Kapan layanan buka?")
+        await asyncio.sleep(1.1)
+        assert len(sent) == 1
+
+        # Pemilik reply manual
+        service.manual_reply(7)
+        assert storage.conversation(7)["state"] == ConversationState.HUMAN_ACTIVE
+        sent.clear()
+
+        # Pesan baru masuk — auto-resume dan diproses
+        await service.incoming(7, 2, "Terimakasih!")
+        await asyncio.sleep(1.1)
+        assert len(sent) == 1
+        assert "Jawaban berdasarkan dokumen" in sent[0][1]
+
+        # Pesan ketiga juga diproses (cycle repeat)
+        sent.clear()
+        service.manual_reply(7)
+        await service.incoming(7, 3, "Sampai jumpa!")
+        await asyncio.sleep(1.1)
+        assert len(sent) == 1
+        assert "Jawaban berdasarkan dokumen" in sent[0][1]
+
+        await service.shutdown()
+
+    asyncio.run(scenario())

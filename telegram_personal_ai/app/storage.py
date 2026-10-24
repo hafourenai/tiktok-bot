@@ -233,6 +233,14 @@ class Storage:
             self._clear_chat_locked(chat_id)
             self.audit(chat_id, event_type)
 
+    def auto_resume(self, chat_id: int) -> None:
+        """Auto-resume dari HUMAN_ACTIVE ke IDLE ketika pesan baru masuk."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE conversations SET state=?,updated_at=? WHERE chat_id=?",
+                (ConversationState.IDLE, now(), chat_id),
+            )
+
     def resume(self, chat_id: int) -> None:
         with self._lock, self._db:
             row = self.ensure_chat(chat_id)

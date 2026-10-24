@@ -112,14 +112,52 @@ Setelah `python main.py` berjalan, ketik di prompt `ai-admin>`:
 list-chats                    — lihat semua chat dan statusnya
 enable-chat <CHAT_ID>         — aktifkan AI untuk chat tersebut
 disable-chat <CHAT_ID>        — nonaktifkan AI untuk chat tersebut
-pause-chat <CHAT_ID>          — jeda (human mode)
-resume-chat <CHAT_ID>         — lanjutkan setelah jeda
+pause-chat <CHAT_ID>          — jeda sementara (gunakan resume-chat untuk lanjut)
+resume-chat <CHAT_ID>         — lanjutkan setelah pause-chat
 set-delay <DETIK>             — ubah delay balasan (default 180 s)
 reindex                       — indeks ulang knowledge
 exit                          — matikan aplikasi
 ```
 
 Gunakan `list-chats` untuk menemukan `CHAT_ID` setelah orang pertama kali mengirim DM.
+
+### Flow: Auto-Resume setelah Manual Reply
+
+1. **Pemilik aktifkan AI dari CLI:**
+   ```
+   ai-admin> enable-chat 12345
+   ```
+   → `ai_enabled=1`, state=`IDLE`
+
+2. **User kirim pesan:**
+   ```
+   User: "Halo, kapan buka?"
+   ```
+   → AI delay 180s lalu jawab otomatis
+
+3. **Pemilik balas manual dari Telegram (HP/device apapun):**
+   ```
+   Pemilik: "Halo, buka jam 9"
+   ```
+   → Sistem **otomatis** detect → state=`HUMAN_ACTIVE` (pause), `ai_enabled` tetap `1`
+
+4. **User kirim pesan lagi:**
+   ```
+   User: "Terimakasih!"
+   ```
+   → AI **otomatis resume** (state `HUMAN_ACTIVE` → `IDLE`) → delay → jawab
+
+5. **Cycle repeat:** Manual reply → Auto-resume → Jawab → Manual reply → ...
+
+**Tidak perlu perintah CLI tambahan.** Pemilik hanya perlu:
+- `enable-chat` saat pertama kali mengaktifkan chat
+- `disable-chat` jika ingin menonaktifkan selamanya
+- `pause-chat` / `resume-chat` untuk jeda manual yang eksplisit
+
+### Perbedaan `pause-chat` vs Manual Reply
+
+- **`pause-chat <CHAT_ID>`** dari CLI: Jeda manual yang eksplisit. Gunakan `resume-chat` untuk lanjut.
+- **Manual reply** dari Telegram: Jeda otomatis sementara. AI **otomatis resume** pada pesan berikutnya.
 
 ## Best practice jaringan di Termux (Network is Unreachable)
 
