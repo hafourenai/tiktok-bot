@@ -34,6 +34,18 @@ from config import (
     WEATHER_GEOCODER_URL,
     YOUTUBE_URL_RE,
     INSTAGRAM_URL_RE,
+    NEWS_ENABLED,
+    NEWS_DB_PATH,
+    NEWS_MAX_ARTICLES,
+    NEWS_CACHE_TTL_SECONDS,
+    NEWS_LOOKBACK_HOURS,
+    NEWS_HTTP_TIMEOUT_SECONDS,
+    NEWS_EXTRACT_TIMEOUT_SECONDS,
+    NEWS_LLM_BASE_URL,
+    NEWS_LLM_MODEL,
+    NEWS_LLM_TEMPERATURE,
+    NEWS_LLM_MAX_TOKENS,
+    NEWS_LLM_TIMEOUT_SECONDS,
 )
 from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
@@ -84,6 +96,18 @@ from downloader import (
     get_instagram_info,
     stalk_tiktok_user,
 )
+
+# Import News Skill if enabled
+if NEWS_ENABLED:
+    try:
+        from src.news.handlers import berita_command
+        from src.news.service import NewsService
+        HAS_NEWS = True
+    except ImportError as e:
+        logger.warning("News Skill failed to import: %s", e)
+        HAS_NEWS = False
+else:
+    HAS_NEWS = False
 
 
 load_dotenv()
@@ -1193,6 +1217,29 @@ async def post_init(application: Application) -> None:
         logger.info("Discord voice monitor task started")
     elif not DISCORD_BOT_TOKEN:
         logger.warning("DISCORD_BOT_TOKEN is not configured; voice monitoring is disabled")
+    
+    # Initialize News Skill if enabled
+    if HAS_NEWS:
+        try:
+            news_service = NewsService(
+                db_path=str(NEWS_DB_PATH),
+                llm_base_url=NEWS_LLM_BASE_URL,
+                llm_model=NEWS_LLM_MODEL,
+                llm_temperature=NEWS_LLM_TEMPERATURE,
+                llm_max_tokens=NEWS_LLM_MAX_TOKENS,
+                llm_timeout=NEWS_LLM_TIMEOUT_SECONDS,
+                http_timeout=NEWS_HTTP_TIMEOUT_SECONDS,
+                max_articles=NEWS_MAX_ARTICLES,
+                cache_ttl_seconds=NEWS_CACHE_TTL_SECONDS,
+                lookback_hours=NEWS_LOOKBACK_HOURS,
+                extract_timeout=NEWS_EXTRACT_TIMEOUT_SECONDS,
+            )
+            application.bot_data["news_service"] = news_service
+            application.bot_data["news_tasks"] = set()
+            logger.info("News Skill initialized")
+        except Exception as e:
+            logger.exception("Failed to initialize News Skill")
+    
     logger.info("Bot commands menu registered successfully")
 
 
@@ -1200,6 +1247,18 @@ async def post_shutdown(application: Application) -> None:
     monitor = application.bot_data.get("discord_monitor")
     if monitor and not monitor.is_closed():
         await monitor.close()
+    
+    # Cleanup News Skill if enabled
+    if HAS_NEWS:
+        tasks = application.bot_data.get("news_tasks", set())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        logger.info("News Skill tasks cleaned up")
 
 
 def main() -> None:
@@ -1226,13 +1285,24 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler(["downloader", "discord", "cuaca", "converter"], category_command))
-    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca|converter)$"))
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:(home|downloader|discord|cuaca|converter|berita)$"))
     application.add_handler(CallbackQueryHandler(action_callback, pattern=r"^action:(stats|today|history|export|storage|cuaca|cuaca_manual)$"))
     application.add_handler(CallbackQueryHandler(convert_callback, pattern=r"^convert:"))
     application.add_handler(CallbackQueryHandler(weather_region_callback, pattern=r"^wr_"))
     application.add_handler(CommandHandler("cuaca", weather_command))
     application.add_handler(CommandHandler("cuaca_manual", weather_manual_command))
     application.add_handler(CommandHandler("batal", cancel_weather))
+    
+    # Register News command with access control wrapper
+    async def berita_command_with_access_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not is_allowed(update):
+            await deny(update)
+            return
+        await berita_command(update, context)
+    
+    if HAS_NEWS:
+        application.add_handler(CommandHandler("berita", berita_command_with_access_check))
+    
     application.add_handler(MessageHandler(WEATHER_LOCATION_FILTER, handle_weather_location))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_conversion))

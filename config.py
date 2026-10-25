@@ -1,6 +1,7 @@
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
@@ -67,3 +68,30 @@ INSTAGRAM_APP_ID = os.getenv("INSTAGRAM_APP_ID", "").strip()
 INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "").strip()
 INSTAGRAM_REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI", "").strip()
 INSTAGRAM_TOKEN_ENCRYPTION_KEY = os.getenv("INSTAGRAM_TOKEN_ENCRYPTION_KEY", "").strip()
+
+# News Skill configuration
+NEWS_ENABLED = os.getenv("NEWS_ENABLED", "true").lower() == "true"
+NEWS_DB_PATH = project_path(os.getenv("NEWS_DB_PATH", "data/news.db"))
+NEWS_MAX_ARTICLES = int(os.getenv("NEWS_MAX_ARTICLES", "5"))
+NEWS_CACHE_TTL_SECONDS = int(os.getenv("NEWS_CACHE_TTL_SECONDS", "180"))
+NEWS_LOOKBACK_HOURS = int(os.getenv("NEWS_LOOKBACK_HOURS", "48"))
+NEWS_HTTP_TIMEOUT_SECONDS = int(os.getenv("NEWS_HTTP_TIMEOUT_SECONDS", "12"))
+NEWS_EXTRACT_TIMEOUT_SECONDS = int(os.getenv("NEWS_EXTRACT_TIMEOUT_SECONDS", "15"))
+
+NEWS_LLM_BASE_URL = os.getenv("NEWS_LLM_BASE_URL", "http://127.0.0.1:8080").strip()
+NEWS_LLM_MODEL = os.getenv("NEWS_LLM_MODEL", "qwen3-0.6b").strip()
+NEWS_LLM_ALLOW_REMOTE = os.getenv("NEWS_LLM_ALLOW_REMOTE", "false").lower() == "true"
+NEWS_LLM_TEMPERATURE = float(os.getenv("NEWS_LLM_TEMPERATURE", "0.2"))
+NEWS_LLM_MAX_TOKENS = int(os.getenv("NEWS_LLM_MAX_TOKENS", "256"))
+NEWS_LLM_TIMEOUT_SECONDS = int(os.getenv("NEWS_LLM_TIMEOUT_SECONDS", "45"))
+NEWS_TOTAL_TIMEOUT_SECONDS = int(os.getenv("NEWS_TOTAL_TIMEOUT_SECONDS", "180"))
+NEWS_LLM_CONCURRENCY = int(os.getenv("NEWS_LLM_CONCURRENCY", "1"))
+
+# Validate News LLM URL if not remote allowed
+if NEWS_ENABLED and not NEWS_LLM_ALLOW_REMOTE:
+    parsed_llm_url = urlparse(NEWS_LLM_BASE_URL)
+    if parsed_llm_url.hostname not in {"127.0.0.1", "localhost"}:
+        raise RuntimeError(
+            "NEWS_LLM_BASE_URL must use localhost/127.0.0.1 when NEWS_LLM_ALLOW_REMOTE=false. "
+            "Set NEWS_LLM_ALLOW_REMOTE=true to allow remote endpoints."
+        )

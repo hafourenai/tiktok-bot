@@ -60,16 +60,32 @@ def menu_content(section: str):
             [InlineKeyboardButton("Buka Web Converter ↗", url="https://converter-web-orcin.vercel.app")],
             back,
         ]
-    else:
+    elif section == "berita":
         text = (
-            "✨ <b>Menu Utama Honey Assistant</b>\n\n"
-            "Silakan pilih layanan yang ingin Anda gunakan:"
+            "📰 <b>Berita Terbaru</b>\n\n"
+            "Dapatkan berita terkini dari sumber nasional dan internasional, dengan ringkasan AI.\n\n"
+            "<b>Perintah:</b>\n"
+            "• <code>/berita</code> — berita terbaru semua kategori\n"
+            "• <code>/berita nasional</code> — berita nasional\n"
+            "• <code>/berita internasional</code> — berita internasional\n"
+            "• <code>/berita teknologi</code> — berita teknologi\n"
+            "• <code>/berita ekonomi</code> — berita ekonomi\n"
+            "• <code>/berita politik</code> — berita politik\n"
+            "• <code>/berita olahraga</code> — berita olahraga\n\n"
+            "Sumber: ANTARA News (nasional), The Guardian (internasional)"
+        )
+        rows = [back]
+    else:  # home
+        text = (
+            "✨ <b>Honey Assistant</b>\n\n"
+            "Silakan pilih layanan yang ingin Anda gunakan:\n"
         )
         rows = [
-            [InlineKeyboardButton("📥 Downloader", callback_data="menu:downloader"),
-             InlineKeyboardButton("🎙️ Discord Voice", callback_data="menu:discord")],
-            [InlineKeyboardButton("🌤️ Cuaca BMKG", callback_data="menu:cuaca"),
-             InlineKeyboardButton("📑 Converter File", callback_data="menu:converter")]
+            [InlineKeyboardButton("📥 Downloader", callback_data="menu:downloader")],
+            [InlineKeyboardButton("🎙️ Discord Voice", callback_data="menu:discord")],
+            [InlineKeyboardButton("🌤️ Cuaca", callback_data="menu:cuaca")],
+            [InlineKeyboardButton("📑 Converter", callback_data="menu:converter")],
+            [InlineKeyboardButton("📰 Berita", callback_data="menu:berita")],
         ]
     return text, InlineKeyboardMarkup(rows)
 
@@ -91,11 +107,14 @@ def menu_commands(section: str):
                      BotCommand("batal", "Batalkan sesi cuaca")]
     elif section == "converter":
         commands += [BotCommand("converter", "Panduan konversi dokumen")]
+    elif section == "berita":
+        commands += [BotCommand("berita", "Berita terbaru")]
     else:
         commands += [
             BotCommand("downloader", "Menu Downloader"),
             BotCommand("discord", "Menu Discord"),
             BotCommand("cuaca", "Prakiraan cuaca BMKG"),
             BotCommand("converter", "Menu Converter dokumen"),
+            BotCommand("berita", "Menu Berita terbaru"),
         ]
     return commands + [BotCommand("help", "Bantuan menu aktif")]

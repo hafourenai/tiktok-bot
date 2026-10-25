@@ -1,5 +1,0 @@
-curl-cffi==0.5.9
-requests==2.31.0
-beautifulsoup4==4.12.2
-pytest==7.4.0
-pytest-cov==4.1.0
