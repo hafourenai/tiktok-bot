@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import Optional
 
 import httpx
@@ -92,6 +93,11 @@ class LLMSummarizer:
             result = response.json()
             message = result.get("choices", [{}])[0].get("message", {})
             summary_text = message.get("content", "").strip()
+            # Some Qwen templates expose reasoning tags in content. They are
+            # not part of the user-facing summary.
+            summary_text = re.sub(
+                r"<think>.*?</think>", "", summary_text, flags=re.IGNORECASE | re.DOTALL
+            ).strip()
             
             # Validate output
             if not summary_text:

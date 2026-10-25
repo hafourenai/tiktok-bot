@@ -118,6 +118,7 @@ class NewsService:
             
             # Summarize articles
             summaries = {}
+            llm_available = True
             for article in articles:
                 article_id = url_to_id.get(article.canonical_url)
                 if not article_id:
@@ -125,7 +126,9 @@ class NewsService:
                 
                 # Check if summary already cached
                 cached = self.storage.get_summary(article_id)
-                if cached:
+                # Old versions cached source excerpts as if they were
+                # successful summaries. Only reuse actual LLM output.
+                if cached and cached[1] in {"llm_full_text", "llm_excerpt"}:
                     summaries[article.canonical_url] = cached[0]
                     logger.info("Using cached summary for %s", article.title[:50])
                     continue
@@ -137,12 +140,24 @@ class NewsService:
                     timeout=self.extract_timeout,
                 )
                 
-                # Summarize with LLM
-                async with self._llm_semaphore:
-                    summary_text, error = await self.summarizer.summarize(
-                        content,
-                        article.title,
-                    )
+                summary_text = None
+                error = "LLM skipped after an earlier availability failure"
+                if llm_available and content.strip():
+                    async with self._llm_semaphore:
+                        summary_text, error = await self.summarizer.summarize(
+                            content,
+                            article.title,
+                        )
+
+                    # Do not spend another 45 seconds for every article when
+                    # the shared server is unavailable or overloaded.
+                    if error in {
+                        "LLM server unreachable",
+                        "LLM request timeout",
+                        "LLM rate limited",
+                    }:
+                        llm_available = False
+                        logger.warning("Disabling LLM for this request: %s", error)
                 
                 if summary_text:
                     summaries[article.canonical_url] = summary_text
@@ -156,12 +171,7 @@ class NewsService:
                 else:
                     # Fallback to excerpt
                     summaries[article.canonical_url] = article.excerpt
-                    self.storage.insert_summary(
-                        article_id,
-                        article.excerpt,
-                        "source_excerpt",
-                        "fallback",
-                    )
+                    # A failed inference is not a successful cached summary.
                     logger.info("Fallback to excerpt: %s (%s)", article.title[:50], error)
             
             # Cleanup old records

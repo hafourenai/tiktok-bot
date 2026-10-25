@@ -9,11 +9,22 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from src.news.fetcher import clean_feed_text
+
 logger = logging.getLogger(__name__)
 
 TIMEZONE = ZoneInfo("Asia/Jakarta")
 MAX_MESSAGE_LENGTH = 4096
 FALLBACK_LABEL = "Cuplikan sumber (tanpa ringkasan AI)"
+
+
+def display_source(source_id: str) -> str:
+    """Return a human-readable publisher name, not an internal feed ID."""
+    if source_id.startswith("antara_"):
+        return "ANTARA News"
+    if source_id.startswith("guardian_"):
+        return "The Guardian"
+    return source_id.replace("_", " ").title()
 
 
 def format_article_message(article, summary: str, timezone=TIMEZONE) -> str:
@@ -27,13 +38,16 @@ def format_article_message(article, summary: str, timezone=TIMEZONE) -> str:
     pub_time_jkt = pub_time.astimezone(TIMEZONE)
     time_str = pub_time_jkt.strftime("%d %b %Y %H:%M WIB")
     
-    # Determine if this is AI summary or fallback
-    is_fallback = summary == article.excerpt
+    # Both RSS and model output are untrusted and may contain markup. Strip it
+    # before Telegram HTML escaping so tags are not displayed literally.
+    clean_summary = clean_feed_text(summary, limit=1200)
+    clean_excerpt = clean_feed_text(article.excerpt, limit=1200)
+    is_fallback = clean_summary == clean_excerpt
     
     lines = [
         f"<b>{html.escape(article.title)}</b>",
         "",
-        f"📰 {html.escape(article.source_id)}",
+        f"📰 {html.escape(display_source(article.source_id))}",
         f"🕐 {time_str}",
         "",
     ]
@@ -43,7 +57,7 @@ def format_article_message(article, summary: str, timezone=TIMEZONE) -> str:
     else:
         lines.append("<i>📌 Ringkasan:</i>")
     
-    lines.append(html.escape(summary))
+    lines.append(html.escape(clean_summary or "Cuplikan tidak tersedia."))
     lines.append("")
     lines.append(f"<a href=\"{html.escape(article.canonical_url)}\">Baca artikel lengkap →</a>")
     
@@ -114,8 +128,11 @@ async def berita_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
         
-        # Fetch news
-        result = await service.fetch_news(category)
+        # Enforce one deadline around feed, extraction, and all inference.
+        result = await asyncio.wait_for(
+            service.fetch_news(category),
+            timeout=context.application.bot_data.get("news_total_timeout", 180),
+        )
         
         if result.error and not result.articles:
             await status.edit_text(

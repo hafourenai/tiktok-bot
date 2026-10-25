@@ -1,6 +1,7 @@
 """Article text extraction."""
 import asyncio
 import logging
+from functools import partial
 from typing import Optional
 
 import httpx
@@ -49,14 +50,18 @@ async def extract_article_text(
         if len(response.content) > DEFAULT_MAX_ARTICLE_SIZE:
             return None, f"Article exceeds size limit"
         
-        # Extract text in thread to avoid blocking
-        loop = asyncio.get_event_loop()
-        text = await loop.run_in_executor(
-            None,
-            trafilatura.extract,
-            response.text,
-            trafilatura.extract_metadata,
-            {"include_tables": True},
+        # Trafilatura's optional parameters are keyword-only on recent
+        # releases. Passing them positionally made extract_metadata become the
+        # source URL and caused ``function has no attribute encode``.
+        text = await asyncio.to_thread(
+            partial(
+                trafilatura.extract,
+                response.text,
+                url=url,
+                include_comments=False,
+                include_tables=True,
+                output_format="txt",
+            )
         )
         
         if not text:

@@ -112,6 +112,14 @@ def test_fingerprint_deduplication():
     assert unique[1].canonical_url == "https://example.com/other"
 
 
+def test_feed_html_is_converted_to_plain_text():
+    """RSS markup must never be shown as literal HTML in Telegram."""
+    from src.news.fetcher import clean_feed_text
+
+    value = '<p>Berita <strong>penting</strong>&nbsp;hari ini.</p>'
+    assert clean_feed_text(value) == "Berita penting hari ini."
+
+
 def test_storage_initialization():
     """Test SQLite storage initialization."""
     from src.news.storage import NewsStorage

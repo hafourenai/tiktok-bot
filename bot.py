@@ -49,6 +49,7 @@ from config import (
     NEWS_LLM_TEMPERATURE,
     NEWS_LLM_MAX_TOKENS,
     NEWS_LLM_TIMEOUT_SECONDS,
+    NEWS_TOTAL_TIMEOUT_SECONDS,
 )
 from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
@@ -1237,6 +1238,7 @@ async def post_init(application: Application) -> None:
             )
             application.bot_data["news_service"] = news_service
             application.bot_data["news_tasks"] = set()
+            application.bot_data["news_total_timeout"] = NEWS_TOTAL_TIMEOUT_SECONDS
             logger.info("News Skill initialized")
         except Exception as e:
             logger.exception("Failed to initialize News Skill")
@@ -1302,7 +1304,9 @@ def main() -> None:
         await berita_command(update, context)
     
     if HAS_NEWS:
-        application.add_handler(CommandHandler("berita", berita_command_with_access_check))
+        application.add_handler(
+            CommandHandler("berita", berita_command_with_access_check, block=False)
+        )
     
     application.add_handler(MessageHandler(WEATHER_LOCATION_FILTER, handle_weather_location))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))

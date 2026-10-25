@@ -1,8 +1,11 @@
 """RSS fetching and parsing."""
 import asyncio
 import hashlib
+import html
 import logging
+import re
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -21,6 +24,33 @@ DEFAULT_READ_TIMEOUT = 10
 DEFAULT_MAX_REDIRECTS = 3
 DEFAULT_MAX_FEED_SIZE = 2 * 1024 * 1024  # 2 MB
 DEFAULT_MAX_RETRIES = 2
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Collect visible text from a short RSS HTML fragment."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.parts.append(data)
+
+
+def clean_feed_text(value: str, limit: int = 500) -> str:
+    """Convert RSS HTML fragments/entities into normalized plain text."""
+    if not value:
+        return ""
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(value)
+        parser.close()
+        text = " ".join(parser.parts)
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", value)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
 def create_http_client(
@@ -69,7 +99,7 @@ def extract_feed_article(entry: dict, feed_config: FeedConfig, fetched_at: datet
     """Extract article from feed entry."""
     try:
         # Title is required
-        title = (entry.get("title") or "").strip()
+        title = clean_feed_text(entry.get("title") or "", limit=300)
         if not title:
             return None
         
@@ -96,8 +126,10 @@ def extract_feed_article(entry: dict, feed_config: FeedConfig, fetched_at: datet
             published_at = published_at.astimezone(timezone.utc)
         
         # Excerpt from summary
-        excerpt = (entry.get("summary") or entry.get("description") or "").strip()
-        excerpt = excerpt[:500] if excerpt else ""
+        excerpt = clean_feed_text(
+            entry.get("summary") or entry.get("description") or "",
+            limit=500,
+        )
         
         # Fingerprint for deduplication
         fp = fingerprint_article(title, canonical_url)
