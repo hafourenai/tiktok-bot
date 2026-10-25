@@ -11,6 +11,9 @@ from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
 from dotenv import load_dotenv
 from telegram import (BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup,
                       KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update)
@@ -111,8 +114,6 @@ else:
 
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 
