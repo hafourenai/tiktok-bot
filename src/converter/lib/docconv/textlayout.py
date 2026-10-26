@@ -50,7 +50,9 @@ def build_lines(chars: list, page_width: float = 0.0) -> list[LineSegment]:
     lines = []
     for bucket in buckets:
         bucket.sort(key=lambda c: (c.x0, c.x1))
-        lines.append(LineSegment(_merge_within_words(bucket)))
+        merged = _merge_within_words(bucket)
+        if merged:
+            lines.append(LineSegment(merged))
     # Stable vertical order: top of page first.
     lines.sort(key=lambda seg: (-seg.top, seg.x0))
     return lines
