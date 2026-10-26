@@ -50,7 +50,8 @@ def test_instagram_without_credentials_explains_fallback(tmp_path):
 
 
 @pytest.mark.parametrize("media_type,extension", [("video", ".mp4"), ("photo", ".jpg")])
-def test_instagram_download_type(tmp_path, no_ytdlp, credentials, media_type, extension):
+@pytest.mark.usefixtures("no_ytdlp", "credentials")
+def test_instagram_download_type(tmp_path, media_type, extension):
     response = MagicMock(returncode=0, stderr="", stdout=json.dumps({
         "status": "success", "url": "https://cdn.example/media", "mediaType": media_type,
     }))
@@ -62,14 +63,16 @@ def test_instagram_download_type(tmp_path, no_ytdlp, credentials, media_type, ex
     assert result.read_bytes() == b"media"
 
 
-def test_instagram_login_error_is_actionable(tmp_path, no_ytdlp, credentials):
+@pytest.mark.usefixtures("no_ytdlp", "credentials")
+def test_instagram_login_error_is_actionable(tmp_path):
     response = MagicMock(returncode=1, stderr="Instagram login failed.", stdout="")
     with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch("downloader.subprocess.run", return_value=response):
         with pytest.raises(RuntimeError, match="Login Instagram gagal"):
             download_instagram("https://instagram.com/reel/BA/")
 
 
-def test_instagram_credentials_required_is_distinct_from_login_failure(tmp_path, no_ytdlp, credentials):
+@pytest.mark.usefixtures("no_ytdlp", "credentials")
+def test_instagram_credentials_required_is_distinct_from_login_failure(tmp_path):
     response = MagicMock(returncode=1, stderr="Instagram credentials required.", stdout="")
     with patch("config.DOWNLOAD_DIR", str(tmp_path)), patch("downloader.subprocess.run", return_value=response):
         with pytest.raises(RuntimeError, match="credentials missing"):
@@ -82,7 +85,7 @@ def test_instagram_telegram_upload(monkeypatch, tmp_path, extension, method):
 
     file_path = tmp_path / ("media" + extension)
     file_path.write_bytes(b"media")
-    monkeypatch.setattr(bot, "download_instagram", lambda url: file_path)
+    monkeypatch.setattr(bot, "download_instagram", lambda _url: file_path)
     monkeypatch.setattr(bot, "ALLOWED_USER_ID", 123)
     message = SimpleNamespace(reply_video=AsyncMock(), reply_photo=AsyncMock())
     status = SimpleNamespace(edit_text=AsyncMock())

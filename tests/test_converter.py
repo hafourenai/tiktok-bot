@@ -11,7 +11,6 @@ No third-party document library is required or imported.
 
 import subprocess
 import zipfile
-from xml.etree import ElementTree
 
 import pytest
 
@@ -160,7 +159,6 @@ def test_formula_like_cells_stay_strings(tmp_path):
 # -- Office to PDF --------------------------------------------------------
 @pytest.mark.parametrize("kind", ["docx", "xlsx", "pptx"])
 def test_office_fallback_retains_long_text(kind, tmp_path, monkeypatch):
-    from converter.api import get_libreoffice_bin
     monkeypatch.setattr("converter.api.get_libreoffice_bin", lambda: "")
     source = tmp_path / f"source.{kind}"
     text = "Beginning " + "long content " * 40 + "END_MARKER"
@@ -184,7 +182,6 @@ def test_office_fallback_retains_long_text(kind, tmp_path, monkeypatch):
 
 
 def test_office_fallback_flattens_tables(tmp_path, monkeypatch):
-    from converter.api import get_libreoffice_bin
     monkeypatch.setattr("converter.api.get_libreoffice_bin", lambda: "")
     source = tmp_path / "table.docx"
     from converter.lib.docconv._ooxml import PackageWriter, content_types_xml
@@ -219,7 +216,7 @@ def test_libreoffice_failure_uses_fallback(tmp_path, monkeypatch):
     from converter import api as converter_api
     monkeypatch.setattr(converter_api, "get_libreoffice_bin", lambda: "soffice")
 
-    def run(cmd, **kwargs):
+    def run(cmd, **_kwargs):
         assert any(arg.startswith("-env:UserInstallation=file:") for arg in cmd)
         raise subprocess.TimeoutExpired(cmd, 120)
 
@@ -236,7 +233,7 @@ def test_libreoffice_success_is_preferred(tmp_path, monkeypatch):
     from converter import api as converter_api
     monkeypatch.setattr(converter_api, "get_libreoffice_bin", lambda: "soffice")
 
-    def run(cmd, **kwargs):
+    def run(cmd, **_kwargs):
         outdir = cmd[cmd.index("--outdir") + 1]
         write_text_pdf(["from libreoffice"], f"{outdir}/input.pdf")
         return subprocess.CompletedProcess(cmd, 0)
@@ -247,7 +244,6 @@ def test_libreoffice_success_is_preferred(tmp_path, monkeypatch):
 
 
 def test_empty_office_document_is_rejected(tmp_path, monkeypatch):
-    from converter.api import get_libreoffice_bin
     monkeypatch.setattr("converter.api.get_libreoffice_bin", lambda: "")
     source = tmp_path / "empty.docx"
     write_docx([], str(source))
@@ -295,7 +291,7 @@ def test_poppler_render_is_ordered_and_png(tmp_path, monkeypatch):
     source = make_pdf(tmp_path / "three.pdf", (("a", None), ("b", None), ("c", None)))
     output = tmp_path / "render"
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, **_kwargs):
         # Emulate pdftoppm: zero-padded names written out of order.
         prefix = cmd[-1]
         for number in (2, 1, 3):
@@ -314,7 +310,7 @@ def test_poppler_failure_is_reported(tmp_path, monkeypatch):
     source = make_pdf(tmp_path / "a.pdf")
     from converter import api as converter_api
     monkeypatch.setattr(converter_api, "get_poppler_bin", lambda: "pdftoppm")
-    monkeypatch.setattr(converter_api.subprocess, "run", lambda cmd, **kw:
+    monkeypatch.setattr(converter_api.subprocess, "run", lambda cmd, **_kwargs:
                         subprocess.CompletedProcess(cmd, 1, b"", b"boom"))
     with pytest.raises(RuntimeError, match="pdftoppm gagal"):
         convert_pdf_to_images(str(source), str(tmp_path / "out"))
@@ -323,7 +319,7 @@ def test_poppler_failure_is_reported(tmp_path, monkeypatch):
 def test_pdf_to_pptx_preserves_aspect_ratio(tmp_path, monkeypatch):
     source = make_pdf(tmp_path / "wide.pdf", (("page", None),))
 
-    def fake_render(input_path, output_dir, dpi=150):
+    def fake_render(_input_path, output_dir, _dpi=150):
         import pathlib
 
         pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -353,7 +349,7 @@ def test_scan_without_text_is_rejected(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ocr_module, "get_tesseract_bin", lambda: "")
     from converter import api as converter_api
-    monkeypatch.setattr(converter_api, "_render_pdf", lambda *a, **k: (_ for _ in ()).throw(
+    monkeypatch.setattr(converter_api, "_render_pdf", lambda *_args, **_kwargs: (_ for _ in ()).throw(
         RuntimeError("no poppler")))
     with pytest.raises(RuntimeError, match="tesseract-ocr"):
         convert_pdf_to_docx(str(pdf), str(tmp_path / "scan.docx"))
