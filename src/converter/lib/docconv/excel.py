@@ -274,18 +274,6 @@ class XlsxReader:
                 rows[row_index - 1] = dense
         return rows
 
-    def to_sheets(self) -> list:
-        """Convert to :class:`Sheet` objects, for writing onward."""
-        out = []
-        for name, rows in self.sheets():
-            sheet = Sheet(name)
-            for row_index, row in enumerate(rows, 1):
-                for column, value in enumerate(row):
-                    if value:
-                        sheet.set(row_index, column, value)
-            out.append(sheet)
-        return out
-
 
 def _si_text(element) -> str:
     """A shared string may be plain ``t`` or rich ``r`` runs."""

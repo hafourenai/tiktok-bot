@@ -16,9 +16,8 @@ async def is_public_ip(hostname: str) -> bool:
         loop = asyncio.get_event_loop()
         addr_info = await loop.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         
-        for family, socktype, proto, canonname, sockaddr in addr_info:
+        for *_metadata, sockaddr in addr_info:
             ip = sockaddr[0]
-            ip_obj = socket.inet_aton(ip) if ":" not in ip else None
             
             # Check IPv4 private ranges and loopback
             if "." in ip:
@@ -83,43 +82,3 @@ async def is_safe_url(url: str, allowed_domains: set = None) -> tuple[bool, str]
     except Exception as e:
         logger.warning("URL validation error for %s: %s", url, e)
         return False, f"URL validation error: {e}"
-
-
-async def is_safe_redirect(redirect_url: str, original_url: str, allowed_domains: set = None) -> tuple[bool, str]:
-    """
-    Validate redirect target:
-    - Must be HTTPS
-    - Host must be same or in allowlist
-    - No redirect to internal addresses
-    """
-    if not allowed_domains:
-        allowed_domains = ALLOWED_ARTICLE_DOMAINS
-    
-    try:
-        original_parsed = urlparse(original_url)
-        redirect_parsed = urlparse(redirect_url)
-        
-        original_host = original_parsed.hostname or original_parsed.netloc.split(":")[0]
-        redirect_host = redirect_parsed.hostname or redirect_parsed.netloc.split(":")[0]
-        
-        # Must be HTTPS
-        if redirect_parsed.scheme != "https":
-            return False, "Redirect target must use HTTPS"
-        
-        # Same host is OK
-        if redirect_host == original_host:
-            return True, "Redirect to same host"
-        
-        # Other hosts must be in allowlist
-        if redirect_host not in allowed_domains:
-            return False, f"Redirect target {redirect_host} not in allowlist"
-        
-        # Check if public
-        is_public = await is_public_ip(redirect_host)
-        if not is_public:
-            return False, f"Redirect host resolves to non-public IP"
-        
-        return True, "Redirect target verified"
-    except Exception as e:
-        logger.warning("Redirect validation error: %s", e)
-        return False, f"Redirect validation error: {e}"

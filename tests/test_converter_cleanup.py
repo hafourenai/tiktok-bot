@@ -20,7 +20,6 @@ import converter
 def workspace_root(tmp_path, monkeypatch):
     """Point the converter workspace at a throwaway directory."""
     root = tmp_path / "workspace"
-    from converter.pipeline import get_workspace as _get_workspace
     monkeypatch.setattr("converter.pipeline.get_workspace", lambda: root)
     return root
 

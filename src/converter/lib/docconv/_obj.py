@@ -75,14 +75,6 @@ class Keyword(str):
 _HEXDIGITS = b"0123456789abcdefABCDEF"
 
 
-def _is_white(byte: int) -> bool:
-    return byte in WHITESPACE
-
-
-def _is_delim(byte: int) -> bool:
-    return byte in DELIMITERS
-
-
 def _is_regular(byte: int) -> bool:
     return byte not in _REGULAR_END
 
@@ -117,19 +109,6 @@ class Lexer:
                 break
         self.pos = pos
 
-    def at_end(self) -> bool:
-        self.skip_space()
-        return self.pos >= self.end
-
-    def peek_byte(self) -> int:
-        return self.data[self.pos] if self.pos < self.end else -1
-
-    def next_byte(self) -> int:
-        if self.pos >= self.end:
-            return -1
-        self.pos += 1
-        return self.data[self.pos - 1]
-
     def read_keyword(self) -> str:
         start = self.pos
         data, end = self.data, self.end
@@ -138,14 +117,6 @@ class Lexer:
             pos += 1
         self.pos = pos
         return data[start:pos].decode("latin-1")
-
-    def expect_keyword(self, word: str) -> bool:
-        self.skip_space()
-        start = self.pos
-        if self.data[start:start + len(word)] == word.encode("latin-1"):
-            self.pos = start + len(word)
-            return True
-        return False
 
     # -- scalars -----------------------------------------------------------
     def read_name(self) -> Name:
@@ -414,7 +385,6 @@ class _Skip:
 
 
 _SKIP = _Skip()
-SKIP = _SKIP
 
 
 def _stray_key(value) -> str:

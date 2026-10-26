@@ -15,14 +15,13 @@ import httpx
 
 from src.news.models import Article
 from src.news.sources import FeedConfig, publisher_for_source
-from src.news.security import is_safe_url, is_safe_redirect
+from src.news.security import is_safe_url
 
 logger = logging.getLogger(__name__)
 
 # Conservative defaults
 DEFAULT_CONNECT_TIMEOUT = 10
 DEFAULT_READ_TIMEOUT = 10
-DEFAULT_MAX_REDIRECTS = 3
 DEFAULT_MAX_FEED_SIZE = 2 * 1024 * 1024  # 2 MB
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_MAX_ITEMS_PER_FEED = 30
@@ -57,7 +56,6 @@ def clean_feed_text(value: str, limit: int = 500) -> str:
 
 def create_http_client(
     timeout: int = DEFAULT_READ_TIMEOUT,
-    max_redirects: int = DEFAULT_MAX_REDIRECTS,
 ) -> httpx.AsyncClient:
     """Create configured HTTP client."""
     return httpx.AsyncClient(

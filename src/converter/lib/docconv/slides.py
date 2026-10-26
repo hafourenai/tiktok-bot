@@ -27,7 +27,6 @@ THEME_CONTENT_TYPE = (
 # 16:9 at 10 inches wide, matching PowerPoint's default widescreen size.
 DEFAULT_WIDTH = 9144000
 DEFAULT_HEIGHT = 5143500
-EMU_PER_INCH = 914400
 
 
 def _esc(text) -> str:
@@ -100,7 +99,7 @@ def write_pptx(slides, path, slide_width: int = DEFAULT_WIDTH,
     writer.set("ppt/theme/theme1.xml", _theme_xml())
 
     for index, slide in enumerate(slides, 1):
-        slide_xml, slide_rels, extra_parts = _slide_xml(slide, pictures[index - 1])
+        slide_xml, extra_parts = _slide_xml(slide, pictures[index - 1])
         writer.set(f"ppt/slides/slide{index}.xml", slide_xml)
         rels = [("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml")]
         for image_index, (target, _name, _ext) in enumerate(extra_parts, 2):
@@ -232,7 +231,7 @@ def _text_body(text: str) -> str:
 
 
 def _slide_xml(slide: Slide, pictures):
-    """Return ``(xml, rels, extra_parts)`` for one slide."""
+    """Return ``(xml, extra_parts)`` for one slide."""
     shapes = []
     extra_parts = []
     shape_id = 2
@@ -285,7 +284,7 @@ def _slide_xml(slide: Slide, pictures):
         "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>"
         "</p:sld>"
     )
-    return xml, None, extra_parts
+    return xml, extra_parts
 
 
 def _picture_geometry(slide: Slide, picture, index: int):

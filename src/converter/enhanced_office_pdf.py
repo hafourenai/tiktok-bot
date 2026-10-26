@@ -24,7 +24,6 @@ def convert_office_to_enhanced_pdf(input_path: str, output_path: str) -> str:
     from reportlab.lib.units import inch
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
     doc = SimpleDocTemplate(output_path, pagesize=letter)
     story = []

@@ -104,7 +104,6 @@ from downloader import (
     download_with_tiktok_api_dl,
     download_youtube,
     download_instagram,
-    get_instagram_info,
     stalk_tiktok_user,
 )
 

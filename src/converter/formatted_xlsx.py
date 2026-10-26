@@ -4,8 +4,6 @@ Uses pdfplumber for table extraction with cell styling, fonts, and column width
 optimization. Falls back to text extraction if formatting unavailable.
 """
 
-from typing import Dict, Tuple
-
 
 def convert_formatted_pdf_to_xlsx(source: str, target: str) -> str:
     """Convert PDF to XLSX with formatting preservation.

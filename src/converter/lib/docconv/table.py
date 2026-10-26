@@ -15,10 +15,6 @@ from ._content import LineSegment
 
 MIN_TABLE_ROWS = 2
 MIN_TABLE_COLUMNS = 2
-# Boundary clustering tolerance, relative to the median font size.
-BOUNDARY_TOLERANCE = 1.6
-# Horizontal alignment agreement needed to call a column consistent.
-ALIGN_TOLERANCE = 2.0
 
 
 def detect_tables(lines, rulings=(), rects=(), page_width=0.0) -> list:

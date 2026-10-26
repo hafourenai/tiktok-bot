@@ -19,17 +19,6 @@ class Article:
 
 
 @dataclass
-class ArticleSummary:
-    """Cached summary for article."""
-    article_id: int
-    summary: str
-    # llm_full_text, llm_excerpt, publisher_summary, extractive, source_excerpt
-    summary_origin: str
-    summary_model: str
-    summary_created_at: datetime
-
-
-@dataclass
 class NewsResult:
     """Result of news fetch/process."""
     articles: list[Article]

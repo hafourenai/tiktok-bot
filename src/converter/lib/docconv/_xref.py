@@ -48,10 +48,6 @@ class PdfDocument:
     def trailer(self) -> dict:
         return self._trailer
 
-    def set_trailer(self, trailer: dict) -> None:
-        for key, value in trailer.items():
-            self._trailer.setdefault(key, value)
-
     # -- loading -----------------------------------------------------------
     def _load(self, num: int, gen: int):
         offset = self._offsets.get(num)
@@ -106,7 +102,7 @@ class PdfDocument:
         num, _offset = entries[index]
         if expected is not None and num != expected:
             # Index may be stale; find the right slot instead.
-            for pos, (candidate, off) in enumerate(entries):
+            for pos, (candidate, _offset) in enumerate(entries):
                 if candidate == expected:
                     index, num = pos, candidate
                     break
@@ -211,7 +207,6 @@ class XrefParser:
         trailer: dict = {}
         seen = set()
         hybrid_seen = set()
-        pending_streams = []
         while start is not None and start not in seen:
             seen.add(start)
             if not (0 <= start < len(data)):
@@ -224,7 +219,6 @@ class XrefParser:
                 self._register(num, entry)
             if section_trailer.get("XRefStm") is not None:
                 hybrid_seen.add(int(section_trailer["XRefStm"]))
-            pending_streams.append(section_trailer)
             for key, value in section_trailer.items():
                 trailer.setdefault(key, value)
             nxt = section_trailer.get("Prev")
@@ -241,7 +235,6 @@ class XrefParser:
                     self._register(num, entry)
                 for key, value in section_trailer.items():
                     trailer.setdefault(key, value)
-        self._pending_trailers = pending_streams
         return trailer
 
     def _register(self, num: int, entry) -> None:

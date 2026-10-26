@@ -227,39 +227,6 @@ def download_instagram(url: str) -> Path:
     return target
 
 
-def get_instagram_info(url: str) -> dict:
-    """Fetch Instagram media information (caption, likes, comments, etc).
-    
-    Requires INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD environment variables.
-    """
-    import os
-    
-    bridge = Path(__file__).with_name("instagram_api_bridge.js")
-    
-    result = subprocess.run(
-        ["node", str(bridge), "info", url],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-        env={**os.environ, "INSTAGRAM_USERNAME": os.getenv("INSTAGRAM_USERNAME", ""),
-             "INSTAGRAM_PASSWORD": os.getenv("INSTAGRAM_PASSWORD", "")},
-    )
-    
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Gagal mengambil info Instagram")
-    
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as err:
-        raise RuntimeError("Respon info Instagram tidak valid") from err
-    
-    if data.get("status") != "success":
-        raise RuntimeError(data.get("message") or "Media Instagram tidak ditemukan")
-    
-    return data
-
-
 def download_with_yt_dlp(url: str, download_dir: Path) -> Path:
     """Download public media with yt-dlp, which needs no account."""
     options = {

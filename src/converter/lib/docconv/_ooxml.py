@@ -79,10 +79,6 @@ class PackageWriter:
             data = data.encode("utf-8")
         self.parts[name] = data
 
-    def set_xml(self, name: str, root: ElementTree.Element) -> None:
-        self.parts[name] = ElementTree.tostring(
-            root, encoding="utf-8", xml_declaration=True)
-
     def has(self, name: str) -> bool:
         return name in self.parts
 

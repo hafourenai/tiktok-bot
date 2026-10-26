@@ -156,7 +156,6 @@ class ContentParser:
         self.rects: list[Rect] = []
         self.lines: list[tuple] = []  # (x0, y0, x1, y1) stroked paths
         self._font_cache: dict = {}
-        self._font = None
 
     def parse(self, data: bytes) -> None:
         if not data:
@@ -165,7 +164,6 @@ class ContentParser:
         stack: list[GraphicsState] = []
         text_matrix = IDENTITY
         line_matrix = IDENTITY
-        in_text = False
         font = None
         font_size = 0.0
         char_spacing = 0.0
@@ -201,11 +199,8 @@ class ContentParser:
 
             # --- text object ---
             elif op == "BT":
-                in_text = True
                 text_matrix = IDENTITY
                 line_matrix = IDENTITY
-            elif op == "ET":
-                in_text = False
             elif op == "Tf" and len(operands) >= 2:
                 font_name = operands[-2]
                 size = operands[-1]

@@ -6,7 +6,6 @@ of content after conversion.
 """
 
 from io import BytesIO
-from typing import List, Tuple
 
 
 def convert_formatted_pdf_to_pptx(source: str, target: str) -> str:
@@ -23,8 +22,6 @@ def convert_formatted_pdf_to_pptx(source: str, target: str) -> str:
     import pdfplumber
     from pptx import Presentation
     from pptx.util import Inches, Pt
-    from pptx.enum.text import PP_ALIGN
-    from pptx.dml.color import RGBColor
 
     prs = Presentation()
     prs.slide_width = Inches(10)

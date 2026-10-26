@@ -64,11 +64,6 @@ INSTAGRAM_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
-INSTAGRAM_APP_ID = os.getenv("INSTAGRAM_APP_ID", "").strip()
-INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "").strip()
-INSTAGRAM_REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI", "").strip()
-INSTAGRAM_TOKEN_ENCRYPTION_KEY = os.getenv("INSTAGRAM_TOKEN_ENCRYPTION_KEY", "").strip()
-
 # News Skill configuration
 NEWS_ENABLED = os.getenv("NEWS_ENABLED", "true").lower() == "true"
 NEWS_DB_PATH = project_path(os.getenv("NEWS_DB_PATH", "data/news.db"))

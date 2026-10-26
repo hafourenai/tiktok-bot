@@ -176,19 +176,3 @@ class NewsStorage:
                 logger.info("Cleaned up %d articles and %d summaries", article_deleted, summary_deleted)
         except sqlite3.Error as e:
             logger.exception("Error cleaning up old records")
-    
-    def get_recent_articles(self, limit: int = 100) -> list[dict]:
-        """Get recent articles from cache."""
-        try:
-            with closing(sqlite3.connect(self.db_path)) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    """
-                    SELECT * FROM articles ORDER BY fetched_at_utc DESC LIMIT ?
-                    """,
-                    (limit,),
-                )
-                return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
-            logger.exception("Error retrieving recent articles")
-            return []

@@ -41,7 +41,6 @@ def convert_formatted_pdf_to_docx(source: str, target: str) -> str:
             x_tolerance=2, y_tolerance=3)
         pending = []
         pending_fonts = []
-        previous_top = None
         previous_bottom = None
         bullet = False
 
@@ -84,7 +83,6 @@ def convert_formatted_pdf_to_docx(source: str, target: str) -> str:
             if previous_bottom is not None and line["top"] - previous_bottom > 14:
                 flush()
             
-            previous_top = line["top"]
             previous_bottom = line["bottom"]
             text = text.replace("–", "–" if page_number == 5 else "•")
             
