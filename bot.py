@@ -1213,7 +1213,103 @@ async def handle_quality(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error("Unhandled Telegram error: %s", context.error, exc_info=context.error)
+    """Handle errors from command/message handlers."""
+    error = context.error
+    # Log the actual error for debugging
+    logger.error("Unhandled Telegram error: %s", error, exc_info=error)
+    
+    # Track persistent connection errors for conflict detection
+    if hasattr(context.application, "bot_data"):
+        error_count = context.application.bot_data.get("polling_error_count", 0)
+        error_types = context.application.bot_data.setdefault("polling_error_types", {})
+        
+        error_name = type(error).__name__
+        if error_name in {"Conflict", "BadRequest"}:
+            error_types[error_name] = error_types.get(error_name, 0) + 1
+            context.application.bot_data["polling_error_count"] = error_count + 1
+            
+            if error_types.get("Conflict", 0) >= 3:
+                logger.critical(
+                    "Detected Telegram getUpdates conflict (another bot instance running?). "
+                    "Received %d Conflict errors. Stopping gracefully.",
+                    error_types["Conflict"]
+                )
+                await context.application.stop()
+
+
+async def run_polling_with_backoff(application: Application, allowed_retries: int = 5) -> None:
+    """
+    Run polling with backoff logic to detect and handle conflicts gracefully.
+    
+    Args:
+        application: The Telegram Application to run
+        allowed_retries: Maximum number of retries before giving up on persistent errors
+    """
+    backoff_delays = [5, 10, 30, 60, 300]  # 5s, 10s, 30s, 60s, 5min
+    attempt = 0
+    consecutive_errors = 0
+    last_error_type = None
+    
+    while attempt < allowed_retries or allowed_retries <= 0:
+        try:
+            logger.info("Starting Telegram polling (attempt %d)...", attempt + 1)
+            await application.run_polling(allowed_retries=3, timeout=30)
+            # If run_polling() completes normally, it means we stopped gracefully
+            logger.info("Polling stopped gracefully")
+            break
+        except KeyboardInterrupt:
+            logger.info("Polling interrupted by user")
+            break
+        except Exception as e:
+            error_type = type(e).__name__
+            is_conflict = "Conflict" in str(e) or "getUpdates" in str(e)
+            
+            if is_conflict:
+                logger.critical(
+                    "⚠️ CONFLICT DETECTED: Another Telegram bot instance using this token is already running. "
+                    "Error: %s. Stopping bot to prevent interference.",
+                    e
+                )
+                break  # Don't retry on conflict — another instance owns this token
+            
+            # Classify error as transient or persistent
+            transient_errors = {"ConnectionError", "TimeoutError", "ConnectTimeout", "ReadTimeout"}
+            is_transient = error_type in transient_errors or isinstance(e, (OSError, TimeoutError))
+            
+            if is_transient:
+                consecutive_errors += 1
+                delay = backoff_delays[min(consecutive_errors - 1, len(backoff_delays) - 1)]
+                logger.warning(
+                    "Transient error #%d (%s): %s. Retrying in %d seconds...",
+                    consecutive_errors, error_type, str(e)[:100], delay
+                )
+                await asyncio.sleep(delay)
+            else:
+                # Persistent error — log and stop after a few attempts
+                logger.error(
+                    "Persistent error (%s): %s. Attempt %d/%d.",
+                    error_type, str(e)[:100], attempt + 1, allowed_retries if allowed_retries > 0 else "unlimited"
+                )
+                if error_type == last_error_type:
+                    consecutive_errors += 1
+                else:
+                    consecutive_errors = 1
+                    last_error_type = error_type
+                
+                if consecutive_errors >= 3:
+                    logger.critical(
+                        "Same persistent error (%s) occurred %d times. Stopping bot.",
+                        error_type, consecutive_errors
+                    )
+                    break
+                
+                delay = backoff_delays[min(attempt, len(backoff_delays) - 1)]
+                logger.info("Retrying in %d seconds...", delay)
+                await asyncio.sleep(delay)
+            
+            attempt += 1
+    
+    logger.info("Polling ended after %d attempts", attempt)
 
 
 async def post_init(application: Application) -> None:
@@ -1336,8 +1432,13 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_quality, pattern=r"^quality:(normal|hd)(:[a-f0-9]{12})?$"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
-    logger.info("Bot started")
-    application.run_polling()
+    logger.info("Bot started with enhanced polling backoff")
+    try:
+        asyncio.run(run_polling_with_backoff(application, allowed_retries=5))
+    except KeyboardInterrupt:
+        logger.info("Bot interrupted by user")
+    except Exception as e:
+        logger.exception("Fatal error in bot: %s", e)
 
 
 if __name__ == "__main__":
