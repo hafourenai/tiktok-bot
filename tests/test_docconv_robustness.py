@@ -1,9 +1,9 @@
 """Robustness tests for docconv edge cases and error recovery."""
 
 import pytest
-from docconv import extract_pages
-from docconv.pdf import PdfReadError
-from docconv._page import PdfEncryptedError
+from converter.lib.docconv import extract_pages
+from converter.lib.docconv.pdf import PdfReadError
+from converter.lib.docconv._page import PdfEncryptedError
 
 
 class TestMalformedPdfHandling:
@@ -70,7 +70,7 @@ class TestImageHandling:
 
     def test_truncated_png_raises_clear_error(self):
         """Truncated PNG should raise ImageError."""
-        from docconv.imgcodec import ImageError, read_dimensions
+        from converter.lib.docconv.imgcodec import ImageError, read_dimensions
         
         png_header = b"\x89PNG\r\n\x1a\n"
         truncated = png_header + b"\x00\x00"
@@ -80,14 +80,14 @@ class TestImageHandling:
 
     def test_invalid_image_format_raises_clear_error(self):
         """Unrecognized image format should raise ImageError."""
-        from docconv.imgcodec import ImageError, read_dimensions
+        from converter.lib.docconv.imgcodec import ImageError, read_dimensions
         
         with pytest.raises(ImageError, match="tidak didukung|Format"):
             read_dimensions(b"NOTAVALIDFORMAT")
 
     def test_invalid_dimensions_raise_clear_error(self):
         """Invalid dimension values should be handled."""
-        from docconv.imgcodec import ImageError, write_png
+        from converter.lib.docconv.imgcodec import ImageError, write_png
         
         with pytest.raises(ImageError, match="tidak valid"):
             write_png(-100, 100, b"data")
@@ -101,15 +101,15 @@ class TestTableDetection:
 
     def test_empty_lines_list_returns_empty_tables(self):
         """Empty input should return empty table list, not crash."""
-        from docconv.table import detect_tables
+        from converter.lib.docconv.table import detect_tables
         
         tables = detect_tables([])
         assert tables == []
 
     def test_single_line_returns_empty_tables(self):
         """Single line cannot form a table."""
-        from docconv.table import detect_tables
-        from docconv._content import LineSegment, Char
+        from converter.lib.docconv.table import detect_tables
+        from converter.lib.docconv._content import LineSegment, Char
         
         char = Char("A", 0, 10, 0, 10, 10)
         line = LineSegment([char])
@@ -123,8 +123,8 @@ class TestLayoutAnalysis:
 
     def test_empty_text_runs_handled(self):
         """Empty or whitespace-only text runs should not crash."""
-        from docconv.textlayout import build_lines
-        from docconv._content import Char
+        from converter.lib.docconv.textlayout import build_lines
+        from converter.lib.docconv._content import Char
         
         # All whitespace
         chars = [Char(" ", i * 10, (i + 1) * 10, 0, 10, 10) for i in range(3)]
@@ -135,8 +135,8 @@ class TestLayoutAnalysis:
 
     def test_extreme_coordinates_handled(self):
         """Very large or negative coordinates should not crash."""
-        from docconv.textlayout import build_lines
-        from docconv._content import Char
+        from converter.lib.docconv.textlayout import build_lines
+        from converter.lib.docconv._content import Char
         
         chars = [
             Char("A", -10000, -9990, 50000, 50010, 10),
@@ -153,7 +153,7 @@ class TestPdfWriter:
 
     def test_invalid_text_escaping(self, tmp_path):
         """PDF writer should handle invalid characters gracefully."""
-        from docconv.pdfwrite import write_text_pdf
+        from converter.lib.docconv.pdfwrite import write_text_pdf
         
         path = tmp_path / "out.pdf"
         # Text with control characters and high bytes
@@ -165,7 +165,7 @@ class TestPdfWriter:
 
     def test_very_long_text_wrapping(self, tmp_path):
         """Very long text should wrap without crashing."""
-        from docconv.pdfwrite import write_text_pdf
+        from converter.lib.docconv.pdfwrite import write_text_pdf
         
         path = tmp_path / "out.pdf"
         long_text = "word " * 1000
@@ -181,7 +181,7 @@ class TestExcelHelpers:
 
     def test_column_index_edge_cases(self):
         """Test column letter conversion edge cases."""
-        from docconv.excel import column_to_index, index_to_column
+        from converter.lib.docconv.excel import column_to_index, index_to_column
         
         # Round trip various indices
         for idx in [0, 1, 25, 26, 27, 675, 701, 702]:
@@ -190,7 +190,7 @@ class TestExcelHelpers:
 
     def test_invalid_cell_reference_returns_none(self):
         """Invalid cell references should return None gracefully."""
-        from docconv.excel import split_ref
+        from converter.lib.docconv.excel import split_ref
         
         assert split_ref("garbage") == (None, None)
         assert split_ref("") == (None, None)

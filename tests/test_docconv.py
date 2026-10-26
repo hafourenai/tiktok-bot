@@ -11,14 +11,14 @@ import os
 
 import pytest
 
-from docconv import extract_pages
-from docconv._filter import (ascii85_decode, asciihex_decode,
+from converter.lib.docconv import extract_pages
+from converter.lib.docconv._filter import (ascii85_decode, asciihex_decode,
                              apply_png_predictor, flate_decode, lzw_decode,
                              runlength_decode)
-from docconv._font import Font, parse_tounicode
-from docconv._page import PdfEncryptedError, load_document
-from docconv.excel import column_to_index, index_to_column, split_ref
-from docconv.pdfwrite import write_text_pdf
+from converter.lib.docconv._font import Font, parse_tounicode
+from converter.lib.docconv._page import PdfEncryptedError, load_document
+from converter.lib.docconv.excel import column_to_index, index_to_column, split_ref
+from converter.lib.docconv.pdfwrite import write_text_pdf
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
@@ -116,7 +116,7 @@ def test_image_only_page_has_content_but_no_text_runs():
     content = document.pages[0].content_bytes()
     assert b"Do" in content  # an image XObject is drawn
 
-    from docconv._content import parse_page
+    from converter.lib.docconv._content import parse_page
 
     parser = parse_page(document.doc, document.pages[0])
     assert parser.runs == []
@@ -249,7 +249,7 @@ def test_written_pdf_reads_back(tmp_path):
 
 
 def test_wrapped_text_stays_within_page_width(tmp_path):
-    from docconv.pdfwrite import MARGIN, PAGE_WIDTH, text_width, wrap
+    from converter.lib.docconv.pdfwrite import MARGIN, PAGE_WIDTH, text_width, wrap
 
     limit = PAGE_WIDTH - 2 * MARGIN
     lines = wrap("word " * 60, size=11.0, max_width=limit)
@@ -258,14 +258,14 @@ def test_wrapped_text_stays_within_page_width(tmp_path):
 
 # -- robustness -----------------------------------------------------------
 def test_garbage_input_raises_read_error():
-    from docconv.pdf import PdfReadError
+    from converter.lib.docconv.pdf import PdfReadError
 
     with pytest.raises((PdfReadError, ValueError)):
         extract_pages(b"this is definitely not a pdf")
 
 
 def test_empty_input_raises():
-    from docconv.pdf import PdfReadError
+    from converter.lib.docconv.pdf import PdfReadError
 
     with pytest.raises((PdfReadError, ValueError)):
         extract_pages(b"")
