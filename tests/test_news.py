@@ -2,7 +2,6 @@
 import asyncio
 import os
 import sqlite3
-import tempfile
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -120,73 +119,61 @@ def test_feed_html_is_converted_to_plain_text():
     assert clean_feed_text(value) == "Berita penting hari ini."
 
 
-def test_storage_initialization():
+def test_storage_initialization(tmp_path):
     """Test SQLite storage initialization."""
     from src.news.storage import NewsStorage
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as f:
-        db_path = f.name
-    
-    try:
-        storage = NewsStorage(db_path)
-        
-        # Verify tables exist
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-            tables = {row[0] for row in cursor.fetchall()}
-            assert "articles" in tables
-            assert "summaries" in tables
-    finally:
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+    db_path = tmp_path / "news.db"
+    storage = NewsStorage(db_path)
+
+    # Verify tables exist
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        tables = {row[0] for row in cursor.fetchall()}
+        assert "articles" in tables
+        assert "summaries" in tables
 
 
-def test_storage_insert_and_retrieve():
+def test_storage_insert_and_retrieve(tmp_path):
     """Test inserting and retrieving articles."""
     from src.news.models import Article
     from src.news.storage import NewsStorage
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as f:
-        db_path = f.name
-    
-    try:
-        storage = NewsStorage(db_path)
-        now = datetime.now(timezone.utc)
-        
-        article = Article(
-            source_id="test",
-            category="nasional",
-            title="Test",
-            canonical_url="https://example.com",
-            published_at_utc=now,
-            fetched_at_utc=now,
-            excerpt="Test excerpt",
-            fingerprint="abc123",
-        )
-        
-        url_to_id = storage.insert_articles([article])
-        assert "https://example.com" in url_to_id
-        
-        # Insert summary
-        article_id = url_to_id["https://example.com"]
-        result = storage.insert_summary(
-            article_id,
-            "Test summary",
-            "llm_full_text",
-            "test-model",
-        )
-        assert result is True
-        
-        # Retrieve summary
-        summary = storage.get_summary(article_id)
-        assert summary is not None
-        assert summary[0] == "Test summary"
-        assert summary[1] == "llm_full_text"
-    finally:
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+    db_path = tmp_path / "news.db"
+    storage = NewsStorage(db_path)
+    now = datetime.now(timezone.utc)
+
+    article = Article(
+        source_id="test",
+        category="nasional",
+        title="Test",
+        canonical_url="https://example.com",
+        published_at_utc=now,
+        fetched_at_utc=now,
+        excerpt="Test excerpt",
+        fingerprint="abc123",
+    )
+
+    url_to_id = storage.insert_articles([article])
+    assert "https://example.com" in url_to_id
+
+    # Insert summary
+    article_id = url_to_id["https://example.com"]
+    result = storage.insert_summary(
+        article_id,
+        "Test summary",
+        "llm_full_text",
+        "test-model",
+    )
+    assert result is True
+
+    # Retrieve summary
+    summary = storage.get_summary(article_id)
+    assert summary is not None
+    assert summary[0] == "Test summary"
+    assert summary[1] == "llm_full_text"
 
 
 @pytest.mark.asyncio
@@ -206,7 +193,7 @@ async def test_llm_summarizer_prompt():
     # Mock the httpx client
     with patch("src.news.summarizer.httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
-        mock_client_class.return_value = mock_client
+        mock_client_class.return_value.__aenter__.return_value = mock_client
         
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -227,8 +214,102 @@ async def test_llm_summarizer_prompt():
         
         # Verify prompt contains safety guidelines
         assert "Bahasa Indonesia" in prompt
-        assert "ATURAN" in prompt
+        assert "/no_think" in prompt
+        assert "30-60 kata" in prompt
         assert article_title in prompt
+
+
+def test_publisher_summary_is_short_and_factual():
+    from src.news.extractive import deterministic_summary
+
+    excerpt = (
+        "Pemerintah menunda kewajiban sertifikasi halal bagi UMKM hingga 2028. "
+        "Kebijakan itu memberi waktu tambahan bagi pelaku usaha untuk memenuhi persyaratan."
+    )
+    summary, origin = deterministic_summary(excerpt, "", "Sertifikasi halal ditunda")
+
+    assert origin == "publisher_summary"
+    assert "hingga 2028" in summary
+    assert len(summary.split()) <= 60
+
+
+def test_truncated_publisher_excerpt_falls_back_to_body():
+    from src.news.extractive import deterministic_summary
+
+    summary, origin = deterministic_summary(
+        "Pemerintah Kota Jakarta Timur menyalurkan bantuan ...",
+        "Pemerintah Kota Jakarta Timur menyalurkan bantuan kebutuhan dasar kepada penyintas kebakaran di Rawamangun.",
+        "Pemkot bantu penyintas kebakaran",
+    )
+
+    assert origin == "extractive"
+    assert summary.endswith("Rawamangun.")
+
+
+def test_low_context_teaser_is_prefixed_with_publisher_headline():
+    from src.news.extractive import publisher_summary
+
+    summary = publisher_summary(
+        "Petugas pun ikut curiga karena jalan menuju lokasi sempit dan rusak.",
+        "Mekanik di Tangerang Dikirimi Tagihan Pajak McLaren Rp137 Juta",
+    )
+
+    assert summary.startswith("Mekanik di Tangerang")
+    assert "Petugas pun ikut curiga" in summary
+
+
+def test_extractive_summary_uses_source_sentences():
+    from src.news.extractive import deterministic_summary
+
+    body = (
+        "Baca juga: Informasi lainnya. "
+        "Kabut asap pekat memaksa panitia membatalkan konser di Palembang. "
+        "Bernadya dan Mahalini batal tampil demi kesehatan warga dan kru."
+    )
+    summary, origin = deterministic_summary("", body, "Konser Palembang batal")
+
+    assert origin == "extractive"
+    assert "Baca juga" not in summary
+    assert "Bernadya" in summary
+
+
+def test_default_feeds_only_use_indonesian_publishers():
+    from src.news.sources import DEFAULT_FEEDS, get_feeds_for_category
+
+    assert {feed.publisher for feed in DEFAULT_FEEDS} == {"ANTARA News", "CNN Indonesia"}
+    assert {feed.publisher for feed in get_feeds_for_category("teknologi")} == {
+        "ANTARA News", "CNN Indonesia"
+    }
+    assert "The Guardian" in {
+        feed.publisher for feed in get_feeds_for_category("internasional")
+    }
+
+
+def test_article_selection_balances_publishers():
+    from datetime import timedelta
+    from src.news.fetcher import sort_and_filter_articles
+    from src.news.models import Article
+
+    now = datetime.now(timezone.utc)
+
+    def article(source_id, index):
+        return Article(
+            source_id=source_id,
+            category="nasional",
+            title=f"Artikel {source_id} {index}",
+            canonical_url=f"https://example.com/{source_id}/{index}",
+            published_at_utc=now - timedelta(minutes=index),
+            fetched_at_utc=now,
+            excerpt="Isi berita yang cukup panjang untuk diuji.",
+        )
+
+    articles = [article("antara_terkini", i) for i in range(5)]
+    articles += [article("cnn_nasional", i) for i in range(5)]
+    selected = sort_and_filter_articles(articles, max_articles=5, max_per_publisher=2)
+
+    assert len(selected) == 4
+    assert sum(item.source_id.startswith("antara_") for item in selected) == 2
+    assert sum(item.source_id.startswith("cnn_") for item in selected) == 2
 
 
 @pytest.mark.asyncio
@@ -268,6 +349,33 @@ def test_message_splitting():
     # Verify each part is within limit
     for part in split:
         assert len(part) <= 4096
+
+
+def test_compact_article_format_has_no_date_or_internal_source_id():
+    from src.news.handlers import format_article_message
+    from src.news.models import Article
+
+    now = datetime.now(timezone.utc)
+    article = Article(
+        source_id="cnn_nasional",
+        category="nasional",
+        title="Operasi Patuh Jaya Digelar 14 Hari",
+        canonical_url="https://www.cnnindonesia.com/nasional/example",
+        published_at_utc=now,
+        fetched_at_utc=now,
+        excerpt="Kapolda mewajibkan penindakan direkam menggunakan video.",
+    )
+    result = format_article_message(
+        article,
+        "Kapolda mewajibkan setiap penindakan direkam menggunakan video.",
+        "publisher_summary",
+        1,
+    )
+
+    assert "1. Operasi Patuh" in result
+    assert "CNN Indonesia" in result
+    assert "cnn_nasional" not in result
+    assert "WIB" not in result
 
 
 def test_news_skill_integration():

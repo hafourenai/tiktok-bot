@@ -82,10 +82,19 @@ NEWS_LLM_BASE_URL = os.getenv("NEWS_LLM_BASE_URL", "http://127.0.0.1:8080").stri
 NEWS_LLM_MODEL = os.getenv("NEWS_LLM_MODEL", "qwen3-0.6b").strip()
 NEWS_LLM_ALLOW_REMOTE = os.getenv("NEWS_LLM_ALLOW_REMOTE", "false").lower() == "true"
 NEWS_LLM_TEMPERATURE = float(os.getenv("NEWS_LLM_TEMPERATURE", "0.2"))
-NEWS_LLM_MAX_TOKENS = int(os.getenv("NEWS_LLM_MAX_TOKENS", "256"))
+NEWS_LLM_MAX_TOKENS = int(os.getenv("NEWS_LLM_MAX_TOKENS", "120"))
 NEWS_LLM_TIMEOUT_SECONDS = int(os.getenv("NEWS_LLM_TIMEOUT_SECONDS", "45"))
 NEWS_TOTAL_TIMEOUT_SECONDS = int(os.getenv("NEWS_TOTAL_TIMEOUT_SECONDS", "180"))
 NEWS_LLM_CONCURRENCY = int(os.getenv("NEWS_LLM_CONCURRENCY", "1"))
+NEWS_LLM_CONTEXT_TOKENS = int(os.getenv("NEWS_LLM_CONTEXT_TOKENS", "1024"))
+NEWS_LLM_HEALTH_TIMEOUT_SECONDS = float(os.getenv("NEWS_LLM_HEALTH_TIMEOUT_SECONDS", "2"))
+NEWS_LLM_COOLDOWN_SECONDS = int(os.getenv("NEWS_LLM_COOLDOWN_SECONDS", "300"))
+NEWS_SUMMARY_MODE = os.getenv("NEWS_SUMMARY_MODE", "auto").strip().lower()
+NEWS_EXTRACTIVE_MAX_SENTENCES = int(os.getenv("NEWS_EXTRACTIVE_MAX_SENTENCES", "2"))
+NEWS_EXTRACTIVE_MAX_WORDS = int(os.getenv("NEWS_EXTRACTIVE_MAX_WORDS", "60"))
+
+if NEWS_SUMMARY_MODE not in {"auto", "llm", "extractive"}:
+    raise RuntimeError("NEWS_SUMMARY_MODE harus auto, llm, atau extractive")
 
 # Validate News LLM URL if not remote allowed
 if NEWS_ENABLED and not NEWS_LLM_ALLOW_REMOTE:

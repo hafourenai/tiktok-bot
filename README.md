@@ -12,6 +12,7 @@ pemantauan voice Discord, prakiraan cuaca BMKG, dan konversi dokumen.
 | Discord Voice | Memantau sesi voice, menampilkan statistik dan riwayat, serta membuat export Excel. |
 | Cuaca BMKG | Prakiraan hingga tingkat kelurahan/desa lewat lokasi GPS/venue atau pemilihan wilayah manual. |
 | Konverter | PDF ke DOCX/XLSX/PPTX/PNG, JPG/PNG ke PDF, serta DOCX/XLSX/PPTX ke PDF. |
+| Berita | RSS ANTARA/CNN Indonesia/The Guardian dengan ringkasan AI dan fallback deterministik tanpa AI. |
 
 Bot hanya menerima DM dari `ALLOWED_TELEGRAM_USER_ID`. Download dibatasi dua pekerjaan sekaligus dan berkas sementara dibersihkan setelah diproses.
 
@@ -82,6 +83,8 @@ python bot.py
 | `WEATHER_GEOCODER_URL` | Tidak | Endpoint Nominatim untuk pemetaan GPS. |
 | `INSTAGRAM_USERNAME`, `INSTAGRAM_PASSWORD` | Untuk Instagram | Akun downloader Instagram; login dapat terkena verifikasi atau rate limit. |
 | `TIKTOK_FALLBACK_URL` | Tidak | Halaman unduh alternatif saat semua metode TikTok gagal. |
+| `NEWS_SUMMARY_MODE` | Tidak | `auto` (default), `llm`, atau `extractive`. Mode `auto` tetap bekerja saat LLM mati. |
+| `NEWS_LLM_BASE_URL` | Tidak | Endpoint lokal llama-server; default `http://127.0.0.1:8080`. |
 
 Jangan commit atau membagikan `.env`, token, kredensial Instagram, maupun hasil unduhan.
 
@@ -124,6 +127,14 @@ Koordinat dikirim ke geocoder saat diminta dan tidak disimpan oleh aplikasi. Pem
 ### Konverter dokumen
 
 Kirim dokumen atau foto ke chat, lalu pilih format target yang ditawarkan bot. Hasil dan batasan setiap format ada di [docs/converter.md](docs/converter.md).
+
+### Berita
+
+Gunakan `/berita` untuk berita Indonesia terbaru atau `/berita nasional`,
+`/berita internasional`, `/berita teknologi`, `/berita ekonomi`,
+`/berita politik`, dan `/berita olahraga`. Jika LLM lokal tidak sehat, bot
+langsung memakai ringkasan penerbit atau memilih kalimat faktual dari artikel.
+Konfigurasi lengkap tersedia di [NEWS_SKILL_README.md](NEWS_SKILL_README.md).
 
 Untuk hasil Office ke PDF terbaik, instal LibreOffice dan pastikan `soffice` tersedia di `PATH` atau atur `LIBREOFFICE_BIN`. `poppler` diperlukan untuk PDF ke gambar dan `tesseract` diperlukan untuk OCR halaman hasil scan.
 

@@ -4,6 +4,7 @@ import hashlib
 import html
 import logging
 import re
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from typing import Optional
@@ -13,7 +14,7 @@ import feedparser
 import httpx
 
 from src.news.models import Article
-from src.news.sources import FeedConfig
+from src.news.sources import FeedConfig, publisher_for_source
 from src.news.security import is_safe_url, is_safe_redirect
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ DEFAULT_READ_TIMEOUT = 10
 DEFAULT_MAX_REDIRECTS = 3
 DEFAULT_MAX_FEED_SIZE = 2 * 1024 * 1024  # 2 MB
 DEFAULT_MAX_RETRIES = 2
+DEFAULT_MAX_ITEMS_PER_FEED = 30
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -195,7 +197,7 @@ async def fetch_feed(
         
         # Extract articles
         articles = []
-        for entry in parsed.get("entries", []):
+        for entry in parsed.get("entries", [])[:DEFAULT_MAX_ITEMS_PER_FEED]:
             article = extract_feed_article(entry, feed_config, fetched_at)
             if article:
                 articles.append(article)
@@ -260,6 +262,7 @@ def sort_and_filter_articles(
     articles: list[Article],
     max_articles: int = 5,
     lookback_hours: int = 48,
+    max_per_publisher: int = 2,
 ) -> list[Article]:
     """
     Sort articles by recency and filter.
@@ -278,8 +281,40 @@ def sort_and_filter_articles(
             continue
         valid.append(article)
     
-    # Sort by date descending, with recent articles first
-    valid.sort(key=lambda a: a.published_at_utc, reverse=True)
-    
-    # Take top N
-    return valid[:max_articles]
+    # Recent items always outrank older items; dates remain descending inside
+    # each group. Articles without a reliable feed date are normalized by the
+    # parser and naturally remain lower priority as feeds evolve.
+    valid.sort(
+        key=lambda article: (
+            article.published_at_utc >= cutoff_recent,
+            article.published_at_utc,
+        ),
+        reverse=True,
+    )
+
+    # Round-robin publishers so one high-volume feed cannot occupy the whole
+    # response. Keep each publisher's own chronological order.
+    queues: dict[str, deque[Article]] = defaultdict(deque)
+    publisher_order: list[str] = []
+    for article in valid:
+        publisher = publisher_for_source(article.source_id)
+        if publisher not in queues:
+            publisher_order.append(publisher)
+        queues[publisher].append(article)
+
+    selected: list[Article] = []
+    counts: dict[str, int] = defaultdict(int)
+    while len(selected) < max_articles:
+        added = False
+        for publisher in publisher_order:
+            if len(selected) >= max_articles:
+                break
+            if counts[publisher] >= max_per_publisher or not queues[publisher]:
+                continue
+            selected.append(queues[publisher].popleft())
+            counts[publisher] += 1
+            added = True
+        if not added:
+            break
+
+    return selected

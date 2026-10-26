@@ -1,6 +1,7 @@
 """SQLite storage for news cache."""
 import logging
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -48,7 +49,7 @@ class NewsStorage:
     def _init_db(self):
         """Initialize database schema."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as conn:
                 conn.executescript(self.SCHEMA)
                 conn.commit()
             logger.info("News database initialized at %s", self.db_path)
@@ -60,7 +61,7 @@ class NewsStorage:
         """Insert articles, return mapping of canonical_url -> article_id."""
         url_to_id = {}
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as conn:
                 for article in articles:
                     try:
                         cursor = conn.execute(
@@ -108,7 +109,7 @@ class NewsStorage:
     ) -> bool:
         """Insert or update summary for article."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO summaries
@@ -129,12 +130,12 @@ class NewsStorage:
             logger.exception("Error inserting summary")
             return False
     
-    def get_summary(self, article_id: int) -> Optional[tuple[str, str]]:
-        """Get cached summary for article. Returns (summary, origin) or None."""
+    def get_summary(self, article_id: int) -> Optional[tuple[str, str, str]]:
+        """Return ``(summary, origin, model/version)`` for an article."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as conn:
                 cursor = conn.execute(
-                    "SELECT summary, summary_origin FROM summaries WHERE article_id = ?",
+                    "SELECT summary, summary_origin, summary_model FROM summaries WHERE article_id = ?",
                     (article_id,),
                 )
                 row = cursor.fetchone()
@@ -154,7 +155,7 @@ class NewsStorage:
             article_cutoff = (now - timedelta(days=article_retention_days)).isoformat()
             summary_cutoff = (now - timedelta(days=summary_retention_days)).isoformat()
             
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as conn:
                 # Delete old summaries
                 cursor = conn.execute(
                     "DELETE FROM summaries WHERE created_at < ?",
@@ -179,7 +180,7 @@ class NewsStorage:
     def get_recent_articles(self, limit: int = 100) -> list[dict]:
         """Get recent articles from cache."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(
                     """

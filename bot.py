@@ -50,6 +50,13 @@ from config import (
     NEWS_LLM_MAX_TOKENS,
     NEWS_LLM_TIMEOUT_SECONDS,
     NEWS_TOTAL_TIMEOUT_SECONDS,
+    NEWS_LLM_CONCURRENCY,
+    NEWS_LLM_CONTEXT_TOKENS,
+    NEWS_LLM_HEALTH_TIMEOUT_SECONDS,
+    NEWS_LLM_COOLDOWN_SECONDS,
+    NEWS_SUMMARY_MODE,
+    NEWS_EXTRACTIVE_MAX_SENTENCES,
+    NEWS_EXTRACTIVE_MAX_WORDS,
 )
 from discord_voice import DiscordVoiceMonitor
 from voice_export import export_period, format_duration
@@ -1235,6 +1242,13 @@ async def post_init(application: Application) -> None:
                 cache_ttl_seconds=NEWS_CACHE_TTL_SECONDS,
                 lookback_hours=NEWS_LOOKBACK_HOURS,
                 extract_timeout=NEWS_EXTRACT_TIMEOUT_SECONDS,
+                summary_mode=NEWS_SUMMARY_MODE,
+                extractive_max_sentences=NEWS_EXTRACTIVE_MAX_SENTENCES,
+                extractive_max_words=NEWS_EXTRACTIVE_MAX_WORDS,
+                llm_health_timeout=NEWS_LLM_HEALTH_TIMEOUT_SECONDS,
+                llm_cooldown_seconds=NEWS_LLM_COOLDOWN_SECONDS,
+                llm_context_tokens=NEWS_LLM_CONTEXT_TOKENS,
+                llm_concurrency=NEWS_LLM_CONCURRENCY,
             )
             application.bot_data["news_service"] = news_service
             application.bot_data["news_tasks"] = set()

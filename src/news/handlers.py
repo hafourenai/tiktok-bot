@@ -2,66 +2,35 @@
 import asyncio
 import html
 import logging
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from src.news.fetcher import clean_feed_text
+from src.news.sources import publisher_for_source
 
 logger = logging.getLogger(__name__)
 
-TIMEZONE = ZoneInfo("Asia/Jakarta")
 MAX_MESSAGE_LENGTH = 4096
 FALLBACK_LABEL = "Cuplikan sumber (tanpa ringkasan AI)"
 
 
-def display_source(source_id: str) -> str:
-    """Return a human-readable publisher name, not an internal feed ID."""
-    if source_id.startswith("antara_"):
-        return "ANTARA News"
-    if source_id.startswith("guardian_"):
-        return "The Guardian"
-    return source_id.replace("_", " ").title()
-
-
-def format_article_message(article, summary: str, timezone=TIMEZONE) -> str:
+def format_article_message(article, summary: str, origin: str, number: int) -> str:
     """Format single article for Telegram."""
-    # Convert UTC to Jakarta time
-    if article.published_at_utc.tzinfo is None:
-        pub_time = article.published_at_utc.replace(tzinfo=timezone.utc)
-    else:
-        pub_time = article.published_at_utc
-    
-    pub_time_jkt = pub_time.astimezone(TIMEZONE)
-    time_str = pub_time_jkt.strftime("%d %b %Y %H:%M WIB")
-    
     # Both RSS and model output are untrusted and may contain markup. Strip it
     # before Telegram HTML escaping so tags are not displayed literally.
     clean_summary = clean_feed_text(summary, limit=1200)
-    clean_excerpt = clean_feed_text(article.excerpt, limit=1200)
-    is_fallback = clean_summary == clean_excerpt
-    
-    lines = [
-        f"<b>{html.escape(article.title)}</b>",
-        "",
-        f"📰 {html.escape(display_source(article.source_id))}",
-        f"🕐 {time_str}",
-        "",
-    ]
-    
-    if is_fallback:
-        lines.append(f"<i>{FALLBACK_LABEL}:</i>")
-    else:
-        lines.append("<i>📌 Ringkasan:</i>")
-    
-    lines.append(html.escape(clean_summary or "Cuplikan tidak tersedia."))
-    lines.append("")
-    lines.append(f"<a href=\"{html.escape(article.canonical_url)}\">Baca artikel lengkap →</a>")
-    
-    return "\n".join(lines)
+    if origin == "source_excerpt":
+        clean_summary = f"{FALLBACK_LABEL}: {clean_summary}"
+    publisher = publisher_for_source(article.source_id)
+    safe_url = html.escape(article.canonical_url, quote=True)
+    return (
+        f"<b>{number}. {html.escape(article.title)}</b>\n\n"
+        f"📰 <b>{html.escape(publisher)}</b> — "
+        f"{html.escape(clean_summary or 'Ringkasan belum tersedia.')}\n"
+        f"🔗 <a href=\"{safe_url}\">{safe_url}</a>"
+    )
 
 
 def split_message(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> list[str]:
@@ -76,6 +45,15 @@ def split_message(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> list[str]:
     parts = text.split("\n\n")
     
     for part in parts:
+        if len(part) > max_length:
+            if current:
+                messages.append(current)
+                current = ""
+            messages.extend(
+                part[index:index + max_length]
+                for index in range(0, len(part), max_length)
+            )
+            continue
         if len(current) + len(part) + 2 > max_length:
             if current:
                 messages.append(current)
@@ -112,6 +90,15 @@ async def berita_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
     
+    chat_id = update.effective_chat.id
+    active_chats = context.application.bot_data.setdefault("news_active_chats", set())
+    if chat_id in active_chats:
+        await update.effective_message.reply_text(
+            "⏳ Permintaan berita sebelumnya masih diproses. Tunggu hingga selesai."
+        )
+        return
+    active_chats.add(chat_id)
+
     # Send status
     status = await update.effective_message.reply_text(
         "⏳ Mengambil berita terbaru...",
@@ -150,23 +137,14 @@ async def berita_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         
         # Build messages
-        header_lines = [
-            f"📰 <b>Berita Terbaru{' — ' + category.capitalize() if category else ''}</b>",
-            "",
-        ]
-        
-        if result.cached:
-            time_str = result.fetch_time.astimezone(TIMEZONE).strftime("%H:%M WIB")
-            header_lines.append(f"<i>💾 Hasil tersimpan dari {time_str}</i>")
-            header_lines.append("")
-        
         article_messages = []
         for i, article in enumerate(result.articles, 1):
             summary = result.summaries.get(article.canonical_url, article.excerpt)
-            msg = format_article_message(article, summary, timezone=TIMEZONE)
-            article_messages.append(f"<b>{i}.</b>\n{msg}")
-        
-        full_text = "\n\n".join(header_lines + article_messages)
+            origin = result.summary_origins.get(article.canonical_url, "source_excerpt")
+            article_messages.append(format_article_message(article, summary, origin, i))
+
+        heading = f"📰 <b>Berita Terbaru{' — ' + category.capitalize() if category else ''}</b>"
+        full_text = "\n\n".join([heading, *article_messages])
         
         # Split and send
         messages = split_message(full_text)
@@ -199,3 +177,5 @@ async def berita_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Silakan coba lagi.",
             parse_mode=ParseMode.HTML,
         )
+    finally:
+        active_chats.discard(chat_id)

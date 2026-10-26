@@ -36,10 +36,16 @@ NEWS_LLM_BASE_URL=http://127.0.0.1:8080
 NEWS_LLM_MODEL=qwen3-0.6b
 NEWS_LLM_ALLOW_REMOTE=false
 NEWS_LLM_TEMPERATURE=0.2
-NEWS_LLM_MAX_TOKENS=256
+NEWS_LLM_MAX_TOKENS=120
 NEWS_LLM_TIMEOUT_SECONDS=45
 NEWS_TOTAL_TIMEOUT_SECONDS=180
 NEWS_LLM_CONCURRENCY=1
+NEWS_LLM_CONTEXT_TOKENS=1024
+NEWS_LLM_HEALTH_TIMEOUT_SECONDS=2
+NEWS_LLM_COOLDOWN_SECONDS=300
+NEWS_SUMMARY_MODE=auto
+NEWS_EXTRACTIVE_MAX_SENTENCES=2
+NEWS_EXTRACTIVE_MAX_WORDS=60
 ```
 
 ### Requirements untuk LLM
@@ -49,8 +55,13 @@ NEWS_LLM_CONCURRENCY=1
 
 Contoh menjalankan llama-server:
 ```bash
-./llama-server -m qwen3-0.6b.gguf --port 8080
+./llama-server -m qwen3-0.6b.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096
 ```
+
+Jika memakai `--ctx-size 4096`, ubah `NEWS_LLM_CONTEXT_TOKENS=4096` agar bot
+dapat memanfaatkan konteks tersebut. Mode `auto` memeriksa kesehatan LLM dalam
+2 detik. Ketika server mati atau timeout, bot langsung memakai ringkasan
+penerbit atau ringkasan ekstraktif tanpa AI selama masa cooldown.
 
 ### Command Penggunaan
 
@@ -68,13 +79,13 @@ User hanya perlu menjalankan perintah di Telegram:
 
 ### Fitur
 
-✅ **Fetch RSS otomatis** dari sumber nasional (ANTARA) dan internasional (The Guardian)
+✅ **Fetch RSS otomatis** dari ANTARA, CNN Indonesia, dan The Guardian
 ✅ **Deduplicasi artikel** berdasarkan URL dan fingerprint
 ✅ **Ekstraksi konten full-text** menggunakan Trafilatura (opsional)
 ✅ **Summarisasi AI per artikel** dengan prompt grounded menggunakan Qwen3 0.6B
-✅ **Fallback graceful** jika ekstraksi atau LLM gagal
+✅ **Fallback deterministik** dari deskripsi penerbit atau kalimat artikel jika LLM gagal
+✅ **Health gate dan cooldown** agar LLM mati tidak memperlambat setiap artikel
 ✅ **Cache SQLite** dengan TTL dan retensi
-✅ **Timezone awareness** — konversi tanggal ke Asia/Jakarta
 ✅ **HTML-safe output** dengan message splitting untuk Telegram
 ✅ **Non-blocking handler** dengan semaphore LLM terpisah
 ✅ **Security validation** untuk URL (HTTPS, allowlist, no SSRF)
@@ -88,6 +99,7 @@ src/news/
 ├── sources.py            # Feed registry, category mapping, allowlist
 ├── fetcher.py            # RSS fetch & parse, dedup, sort
 ├── extractor.py          # HTML content extraction dengan Trafilatura
+├── extractive.py         # Ringkasan deterministik tanpa AI
 ├── security.py           # URL/IP validation untuk SSRF prevention
 ├── summarizer.py         # LLM client (OpenAI-compatible)
 ├── storage.py            # SQLite cache dan metadata
@@ -101,14 +113,14 @@ Implementasi memenuhi PR D sebagai berikut:
 
 | AC | Skenario | Status |
 |----|----------|--------|
-| AC-01 | `/berita` menampilkan 5 artikel | ✅ Implemented |
+| AC-01 | `/berita` menampilkan hingga 5 artikel | ✅ Implemented |
 | AC-02 | `/berita internasional` hanya feed internasional | ✅ Implemented |
 | AC-03 | Kategori valid dikenali | ✅ Implemented |
 | AC-04 | User tak diizinkan ditolak | ✅ Implemented |
 | AC-05 | Artikel rusak tidak menggagalkan feed lain | ✅ Implemented |
 | AC-06 | Duplicate URL dihapus | ✅ Implemented |
-| AC-07 | Tanggal lama diberi label | ✅ Implemented |
-| AC-08 | LLM offline → fallback excerpt | ✅ Implemented |
+| AC-07 | Artikel diprioritaskan berdasarkan keterkinian | ✅ Implemented |
+| AC-08 | LLM offline → ringkasan penerbit/ekstraktif | ✅ Implemented |
 | AC-09 | LLM timeout per artikel, tidak membatalkan rest | ✅ Implemented |
 | AC-10 | Prompt injection di artikel tidak diikuti | ✅ Implemented (prompt grounding) |
 | AC-11 | Redirect ke IP lokal ditolak | ✅ Implemented (security.py) |
@@ -134,18 +146,21 @@ Tests mencakup:
 - Fingerprinting
 - Storage (SQLite insert/retrieve)
 - LLM prompt construction
+- Ringkasan penerbit dan ekstraktif
+- Pemilihan artikel seimbang per penerbit
 - URL security validation
 - Message splitting
 
 ### Keterbatasan & Catatan
 
 1. **RSS Feeds hanya**: Tidak crawl website bebas, hanya allowlist RSS resmi.
-2. **Ekstraksi konten**: Trafilatura membantu tapi tidak menjamin 100% sukses; fallback ke excerpt RSS.
+2. **Ekstraksi konten**: Trafilatura membantu tapi tidak menjamin 100% sukses; deskripsi RSS penerbit diprioritaskan sebagai fallback.
 3. **LLM accuracy**: Qwen3 0.6B model terbatas; evaluasi manual ringkasan sangat disarankan sebelum production.
 4. **Rate limiting**: Server penerbit bisa rate limit; implementasi retry konservatif (exponential backoff).
 5. **Feed URL changes**: Jika feed URL berubah, update di `sources.py` dan restart bot.
 6. **Cache retention**: Metadata disimpan 14 hari, ringkasan 7 hari (oportunistik cleanup).
 7. **Loopback LLM only**: Default `NEWS_LLM_ALLOW_REMOTE=false` untuk security; ubah ke `true` hanya jika benar-benar butuh remote.
+8. **Kompas tidak digunakan**: robots.txt Kompas melarang pengambilan otomatis dan penggunaan konten untuk AI/LLM.
 
 ### Rollback
 
@@ -162,6 +177,7 @@ Fitur existing (downloader, converter, BMKG, Discord Voice) **tidak terpengaruh*
 
 - PRD: `PRD_News_Skill_Bot_Telegram_Multifungsi.md`
 - ANTARA RSS: https://www.antaranews.com/rss/
+- CNN Indonesia RSS: https://www.cnnindonesia.com/rss
 - The Guardian RSS: https://www.theguardian.com/help/feeds
 - Trafilatura: https://trafilatura.readthedocs.io/
 - feedparser: https://feedparser.readthedocs.io/

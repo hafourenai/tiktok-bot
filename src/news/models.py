@@ -1,5 +1,5 @@
 """Data models for News Skill."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -23,7 +23,8 @@ class ArticleSummary:
     """Cached summary for article."""
     article_id: int
     summary: str
-    summary_origin: str  # 'llm_full_text', 'llm_excerpt', 'source_excerpt'
+    # llm_full_text, llm_excerpt, publisher_summary, extractive, source_excerpt
+    summary_origin: str
     summary_model: str
     summary_created_at: datetime
 
@@ -33,6 +34,7 @@ class NewsResult:
     """Result of news fetch/process."""
     articles: list[Article]
     summaries: dict[str, str]  # canonical_url -> summary text
+    summary_origins: dict[str, str] = field(default_factory=dict)
     error: Optional[str] = None
     cached: bool = False
     fetch_time: Optional[datetime] = None

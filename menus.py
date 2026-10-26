@@ -72,7 +72,7 @@ def menu_content(section: str):
             "• <code>/berita ekonomi</code> — berita ekonomi\n"
             "• <code>/berita politik</code> — berita politik\n"
             "• <code>/berita olahraga</code> — berita olahraga\n\n"
-            "Sumber: ANTARA News (nasional), The Guardian (internasional)"
+            "Sumber: ANTARA News, CNN Indonesia, dan The Guardian untuk kategori internasional."
         )
         rows = [back]
     else:  # home
