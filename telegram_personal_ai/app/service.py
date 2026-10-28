@@ -80,8 +80,8 @@ class AssistantService:
                 self.storage.human_handoff(chat_id, "RAG_NO_MATCH")
                 await self.sender(
                     chat_id,
-                    "Tidak ada informasi yang cocok dalam basis pengetahuan. "
-                    "Pesan ini diteruskan kepada pemilik akun." + AI_FOOTER,
+                    "Halo kak 😊 Pertanyaan Anda sudah saya catat, tapi saya belum memiliki informasi lengkapnya di basis pengetahuan. "
+                    "Kak Aldi akan segera merespons dan membantu Anda langsung. Terima kasih sudah bersabar ya! 🙏" + AI_FOOTER,
                 )
                 return
             try:
@@ -90,7 +90,7 @@ class AssistantService:
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 log.warning("LLM tidak tersedia (%s)", type(exc).__name__)
                 llm_failed = True
-                answer = "Sistem AI sedang tidak tersedia. Pesan ini diteruskan ke pemilik akun."
+                answer = "Mohon maaf, sistem saya sedang mengalami gangguan teknis 🔧 Kak Aldi akan segera menindaklanjuti pesan Anda dengan respons personal."
             if not self.storage.can_send(job_id, chat_id, version):
                 return
             sources = ", ".join(sorted({item["source"] for item in contexts}))
