@@ -77,7 +77,7 @@ def test_cache_and_expired_stock_never_used_on_failure(tmp_path):
 def test_invalid_rows_fail_closed(column, value):
     values = [row[:] for row in VALUES]
     values[1][column] = value
-    with pytest.raises(CatalogError):
+    with pytest.raises(CatalogError, match="Baris 2 sheet tidak valid"):
         parse_items(values)
 
 

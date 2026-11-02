@@ -220,6 +220,11 @@ Instal `requirements.txt` seperti biasa lalu restart bot. Selain cache bot,
 Google dapat menunda pembaruan hasil publikasi; ini bukan stok real-time yang dijamin.
 `CATALOG_CACHE_SECONDS=0` hanya mematikan cache bot, bukan cache publikasi Google.
 
+Jika bot menampilkan `Katalog tidak tersedia`, uji langsung dari direktori
+`telegram_personal_ai` dengan `python -m scripts.test_catalog`. Tes ini memakai `.env`
+yang sama tanpa menghubungi Telegram atau LLM. Error validasi menyebut nomor baris
+bermasalah pada CSV; setelah memperbaiki sheet, tunggu publikasi Google diperbarui.
+
 ### Alternatif: persiapan sheet privat melalui API
 
 1. Aktifkan **Google Sheets API** di project Google Cloud Anda.

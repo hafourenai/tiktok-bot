@@ -61,7 +61,7 @@ def parse_items(values: list[list]) -> list[MenuItem]:
         raise CatalogError("Header sheet tidak valid")
     items = []
     codes = set()
-    for row in values[1:]:
+    for row_number, row in enumerate(values[1:], start=2):
         if not any(str(cell).strip() for cell in row):
             continue
         record = dict(zip(headers, row))
@@ -83,7 +83,10 @@ def parse_items(values: list[list]) -> list[MenuItem]:
                                   str(record.get("deskripsi", "")).strip(), aliases))
             codes.add(normalize(code))
         except (KeyError, ValueError, InvalidOperation) as exc:
-            raise CatalogError("Baris sheet tidak valid; cek angka harga/stok dan status aktif") from exc
+            raise CatalogError(
+                f"Baris {row_number} sheet tidak valid; harga/stok harus angka bulat nonnegatif, "
+                "kode harus unik, dan aktif harus TRUE/FALSE"
+            ) from exc
     return items
 
 
@@ -143,6 +146,10 @@ class SheetsCatalog:
                     response.raise_for_status()
                     values = response.json().get("values", [])
                 items = parse_items(values)
+            except CatalogError as exc:
+                # Our own validation messages contain no cell values, credentials, or URLs.
+                log.warning("Katalog tidak tersedia (CatalogError): %s", exc)
+                raise
             except Exception as exc:
                 # Do not expose token, spreadsheet contents, or credential errors to customers/logs.
                 log.warning("Katalog tidak tersedia (%s)", type(exc).__name__)
