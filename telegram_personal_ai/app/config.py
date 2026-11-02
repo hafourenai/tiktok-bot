@@ -45,6 +45,12 @@ class Settings:
     retrieval_limit: int
     log_level: str
     admin_cli: bool
+    catalog_sheet_id: str = ""
+    catalog_sheet_range: str = "Menu!A1:G1000"
+    catalog_credentials: Path | None = None
+    catalog_cache_seconds: float = 30
+    catalog_timeout: float = 15
+    catalog_csv_url: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -72,6 +78,17 @@ class Settings:
         delay = int(os.getenv("AUTO_REPLY_DELAY_SECONDS", "180"))
         if delay < 1:
             raise ValueError("AUTO_REPLY_DELAY_SECONDS minimal 1")
+        cache_seconds = float(os.getenv("CATALOG_CACHE_SECONDS", "30"))
+        catalog_timeout = float(os.getenv("CATALOG_TIMEOUT_SECONDS", "15"))
+        if cache_seconds < 0 or catalog_timeout <= 0:
+            raise ValueError("Cache katalog minimal 0 dan timeout harus positif")
+        credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        csv_url = os.getenv("CATALOG_CSV_URL", "").strip()
+        if csv_url:
+            parsed = urlparse(csv_url)
+            if (parsed.scheme != "https" or parsed.hostname != "docs.google.com"
+                    or not parsed.path.startswith("/spreadsheets/") or parsed.username or parsed.password):
+                raise ValueError("CATALOG_CSV_URL harus berupa URL HTTPS Google Sheets")
         return cls(
             api_id=int(api_id_raw),
             api_hash=api_hash,
@@ -90,4 +107,10 @@ class Settings:
             retrieval_limit=int(os.getenv("RAG_TOP_K", "3")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             admin_cli=_bool("ADMIN_CLI", True),
+            catalog_sheet_id=os.getenv("CATALOG_SHEET_ID", "").strip(),
+            catalog_sheet_range=os.getenv("CATALOG_SHEET_RANGE", "Menu!A1:G1000"),
+            catalog_credentials=base / credentials if credentials else None,
+            catalog_cache_seconds=cache_seconds,
+            catalog_timeout=catalog_timeout,
+            catalog_csv_url=csv_url,
         )

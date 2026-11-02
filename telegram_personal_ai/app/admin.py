@@ -9,10 +9,11 @@ from .storage import Storage
 
 
 class AdminCli:
-    def __init__(self, storage: Storage, rag: RagEngine, disconnect):
+    def __init__(self, storage: Storage, rag: RagEngine, disconnect, cancel_pending=None):
         self.storage = storage
         self.rag = rag
         self.disconnect = disconnect
+        self.cancel_pending = cancel_pending
 
     async def run(self) -> None:
         print("Admin CLI aktif. Ketik 'help' untuk daftar perintah.")
@@ -43,6 +44,8 @@ class AdminCli:
                 if command[0] == "help":
                     print(
                         "list-chats                — lihat semua chat dan statusnya\n"
+                        "chat-enable               — aktifkan balasan otomatis untuk semua DM\n"
+                        "chat-disable              — hentikan semua balasan otomatis\n"
                         "enable-chat <CHAT_ID>     — aktifkan AI untuk chat tersebut\n"
                         "disable-chat <CHAT_ID>    — nonaktifkan AI untuk chat tersebut\n"
                         "pause-chat <CHAT_ID>      — jeda sementara (gunakan resume-chat untuk lanjut)\n"
@@ -51,7 +54,13 @@ class AdminCli:
                         "reindex                   — indeks ulang knowledge\n"
                         "exit                      — matikan aplikasi"
                     )
+                elif command[0] in {"chat-enable", "chat-disable"} and len(command) == 1:
+                    self.storage.set_global_enabled(command[0] == "chat-enable")
+                    if command[0] == "chat-disable" and self.cancel_pending:
+                        await self.cancel_pending()
+                    print("OK — AI global " + ("aktif" if self.storage.global_enabled() else "nonaktif"))
                 elif command[0] == "list-chats":
+                    print("AI global: " + ("aktif" if self.storage.global_enabled() else "nonaktif"))
                     rows = self.storage.list_chats()
                     if not rows:
                         print("Belum ada chat yang tercatat.")

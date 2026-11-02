@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from .config import Settings
+from .catalog import SheetsCatalog
 from .llm import LlmClient
 from .models import ConversationState
 from .rag import RagEngine
@@ -16,26 +17,31 @@ from .storage import Storage
 log = logging.getLogger(__name__)
 Sender = Callable[[int, str], Awaitable[None]]
 
-AI_FOOTER = "\n---\nBalasan otomatis AI"
+AI_FOOTER = "\n---\nBalasan Otomatis"
 
 
 class AssistantService:
     def __init__(
         self, settings: Settings, storage: Storage, rag: RagEngine,
-        llm: LlmClient, sender: Sender,
+        llm: LlmClient, sender: Sender, catalog: SheetsCatalog | None = None,
     ):
         self.settings = settings
         self.storage = storage
         self.rag = rag
         self.llm = llm
         self.sender = sender
+        self.catalog = catalog
         self.tasks: dict[int, asyncio.Task] = {}
 
     async def incoming(self, chat_id: int, message_id: int, text: str) -> None:
+        if not self.storage.global_enabled():
+            return
         row = self.storage.conversation(chat_id)
         if not row["ai_enabled"]:
             return
         if row["state"] == ConversationState.AI_DISABLED:
+            return
+        if row["human_paused"]:
             return
         
         # Auto-resume dari HUMAN_ACTIVE ke IDLE untuk proses pesan
@@ -75,8 +81,16 @@ class AssistantService:
             if not self.storage.claim_job(job_id, chat_id, version):
                 return
             question = self.storage.messages(chat_id, self.settings.max_buffer_chars)
+            catalog_answer = await self.catalog.answer(question) if self.catalog else None
+            if catalog_answer is not None:
+                if self.storage.can_send(job_id, chat_id, version):
+                    await self.sender(chat_id, catalog_answer + AI_FOOTER)
+                    self.storage.finish_job(job_id, chat_id, True)
+                return
             contexts = self.rag.search(question, self.settings.retrieval_limit)
             if not contexts:
+                if not self.storage.can_send(job_id, chat_id, version):
+                    return
                 self.storage.human_handoff(chat_id, "RAG_NO_MATCH")
                 await self.sender(
                     chat_id,
@@ -93,8 +107,7 @@ class AssistantService:
                 answer = "Mohon maaf, sistem saya sedang mengalami gangguan teknis 🔧 Kak Aldi akan segera menindaklanjuti pesan Anda dengan respons personal."
             if not self.storage.can_send(job_id, chat_id, version):
                 return
-            sources = ", ".join(sorted({item["source"] for item in contexts}))
-            await self.sender(chat_id, f"{answer}\n\nSumber: {sources}{AI_FOOTER}")
+            await self.sender(chat_id, answer + AI_FOOTER)
             self.storage.finish_job(job_id, chat_id, True)
             if llm_failed:
                 self.storage.human_handoff(chat_id, "LLM_UNAVAILABLE")

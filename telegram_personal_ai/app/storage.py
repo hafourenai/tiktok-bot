@@ -73,6 +73,8 @@ class Storage:
             for col, definition in (
                 ("ai_enabled", "INTEGER NOT NULL DEFAULT 0"),
                 ("enabled_at", "TEXT"),
+                ("ai_override", "INTEGER NOT NULL DEFAULT 0"),
+                ("human_paused", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 try:
                     self._db.execute(
@@ -80,12 +82,21 @@ class Storage:
                     )
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+            # Preserve explicit owner choices; auto-enable previously unconfigured chats.
+            self._db.execute(
+                "UPDATE conversations SET ai_override=1 WHERE chat_id IN "
+                "(SELECT chat_id FROM audit_events WHERE event_type IN ('AI_ENABLED','AI_DISABLED'))"
+            )
+            self._db.execute(
+                "UPDATE conversations SET ai_enabled=1,state=? WHERE ai_override=0 AND ai_enabled=0",
+                (ConversationState.IDLE,),
+            )
 
     def ensure_chat(self, chat_id: int) -> sqlite3.Row:
         with self._lock, self._db:
             self._db.execute(
-                "INSERT OR IGNORE INTO conversations(chat_id,updated_at) VALUES(?,?)",
-                (chat_id, now()),
+                "INSERT OR IGNORE INTO conversations(chat_id,state,ai_enabled,updated_at) VALUES(?,?,1,?)",
+                (chat_id, ConversationState.IDLE, now()),
             )
             return self._db.execute(
                 "SELECT * FROM conversations WHERE chat_id=?", (chat_id,)
@@ -100,7 +111,7 @@ class Storage:
         with self._lock, self._db:
             self.ensure_chat(chat_id)
             self._db.execute(
-                "UPDATE conversations SET ai_enabled=?,enabled_at=?,state=?,"
+                "UPDATE conversations SET ai_enabled=?,enabled_at=?,state=?,ai_override=1,human_paused=0,"
                 "message_version=message_version+1,updated_at=? WHERE chat_id=?",
                 (int(enabled), now() if enabled else None, state, now(), chat_id),
             )
@@ -182,6 +193,8 @@ class Storage:
 
     def claim_job(self, job_id: str, chat_id: int, version: int) -> bool:
         with self._lock, self._db:
+            if not self.global_enabled():
+                return False
             valid = self._db.execute(
                 "SELECT 1 FROM conversations c JOIN pending_jobs j ON j.chat_id=c.chat_id "
                 "WHERE j.job_id=? AND c.chat_id=? AND j.status=? AND c.message_version=? "
@@ -202,6 +215,8 @@ class Storage:
 
     def can_send(self, job_id: str, chat_id: int, version: int) -> bool:
         with self._lock:
+            if not self.global_enabled():
+                return False
             return bool(self._db.execute(
                 "SELECT 1 FROM conversations c JOIN pending_jobs j ON j.chat_id=c.chat_id "
                 "WHERE j.job_id=? AND c.chat_id=? AND j.status=? AND c.message_version=? "
@@ -226,9 +241,9 @@ class Storage:
         with self._lock, self._db:
             self.ensure_chat(chat_id)
             self._db.execute(
-                "UPDATE conversations SET state=?,last_manual_reply_at=?,"
+                "UPDATE conversations SET state=?,last_manual_reply_at=?,human_paused=?,"
                 "message_version=message_version+1,updated_at=? WHERE chat_id=?",
-                (ConversationState.HUMAN_ACTIVE, now(), now(), chat_id),
+                (ConversationState.HUMAN_ACTIVE, now(), int(event_type == "ADMIN_PAUSED"), now(), chat_id),
             )
             self._clear_chat_locked(chat_id)
             self.audit(chat_id, event_type)
@@ -246,9 +261,24 @@ class Storage:
             row = self.ensure_chat(chat_id)
             state = ConversationState.IDLE if row["ai_enabled"] else ConversationState.AI_DISABLED
             self._db.execute(
-                "UPDATE conversations SET state=?,updated_at=? WHERE chat_id=?",
+                "UPDATE conversations SET state=?,human_paused=0,updated_at=? WHERE chat_id=?",
                 (state, now(), chat_id),
             )
+
+    def global_enabled(self) -> bool:
+        with self._lock:
+            row = self._db.execute("SELECT value FROM settings WHERE key='chat_enabled'").fetchone()
+            return row is None or row[0] == "1"
+
+    def set_global_enabled(self, enabled: bool) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO settings(key,value) VALUES('chat_enabled',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(int(enabled)),),
+            )
+            if not enabled:
+                self.cancel_all_stale_jobs()
+            self.audit(None, "GLOBAL_AI_ENABLED" if enabled else "GLOBAL_AI_DISABLED")
 
     def cancel_all_stale_jobs(self) -> None:
         with self._lock, self._db:

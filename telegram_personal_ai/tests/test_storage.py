@@ -57,7 +57,7 @@ def test_resume_restores_idle_when_ai_enabled(storage):
 
 
 def test_resume_keeps_disabled_when_ai_not_enabled(storage):
-    storage.ensure_chat(21)
+    storage.set_chat_enabled(21, False)
     storage.resume(21)
     assert storage.conversation(21)["state"] == ConversationState.AI_DISABLED
 
@@ -101,3 +101,36 @@ def test_admin_pause_still_uses_resume(storage):
     # resume mengembalikan ke IDLE
     storage.resume(103)
     assert storage.conversation(103)["state"] == ConversationState.IDLE
+
+
+def test_default_enabled_and_global_switch_persists(storage):
+    assert storage.conversation(200)["ai_enabled"] == 1
+    assert storage.global_enabled()
+    storage.set_global_enabled(False)
+    version = storage.buffer_message(200, 1, "halo", 5)
+    job = storage.create_job(200, version, "2099-01-01T00:00:00+00:00")
+    assert not storage.claim_job(job, 200, version)
+    storage.set_global_enabled(True)
+    storage.set_chat_enabled(201, False)
+    assert storage.conversation(201)["ai_enabled"] == 0
+
+
+def test_global_disable_invalidates_processing_job(storage):
+    version = storage.buffer_message(202, 1, "halo", 5)
+    job = storage.create_job(202, version, "2099-01-01T00:00:00+00:00")
+    assert storage.claim_job(job, 202, version)
+    storage.set_global_enabled(False)
+    storage.set_global_enabled(True)
+    assert not storage.can_send(job, 202, version)
+
+
+def test_migration_preserves_owner_disabled_and_enables_unconfigured(storage):
+    storage.set_chat_enabled(203, False)
+    storage.ensure_chat(204)
+    storage._db.execute("UPDATE conversations SET ai_enabled=0,state='AI_DISABLED' WHERE chat_id=204")
+    storage._db.commit()
+    storage.migrate()
+    assert storage.conversation(203)["ai_enabled"] == 0
+    assert storage.conversation(204)["ai_enabled"] == 1
+    storage.migrate()
+    assert storage.conversation(203)["ai_enabled"] == 0

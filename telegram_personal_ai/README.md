@@ -1,21 +1,23 @@
 # Telegram Personal AI Auto-Reply
 
-Asisten akun Telegram pribadi berbasis Telethon. Sistem hanya menangani DM teks setelah
-pengirim memberi persetujuan eksplisit, menunggu 180 detik, dan membatalkan AI jika pemilik
-akun membalas.
+Asisten akun Telegram pribadi berbasis Telethon. Semua DM teks dari manusia otomatis
+aktif secara default, menunggu 180 detik, dan membatalkan AI jika pemilik akun membalas.
+Grup, channel, dan pengirim bot tidak diproses. Uji dengan akun kedua sebelum dipakai.
 
 ## Fitur
 
 - Login akun pribadi MTProto (bukan BotFather) dan session lokal.
-- Aktivasi AI per chat hanya dari CLI Termux — pengguna tidak bisa mengaktifkan sendiri.
-- Setiap balasan AI ditutup dengan penanda `---\nBalasan otomatis AI`.
+- Kontrol global `chat-enable` / `chat-disable` dari CLI Termux tanpa ID chat.
+- Pengecualian per chat tetap didukung; pengguna tidak bisa mengubah kontrol admin.
+- Katalog harga/stok dari CSV publik atau Google Sheets privat, tanpa inferensi LLM untuk jawaban katalog.
+- Setiap balasan ditutup dengan penanda `---\nBalasan Otomatis`, tanpa label sumber/nama file knowledge. Emoji diperbolehkan seperlunya.
 - State per chat dan pending job persisten di SQLite.
 - Debounce pesan, message versioning, serta validasi ulang sebelum kirim.
 - Deteksi balasan manual dari perangkat Telegram mana pun.
 - RAG TXT/Markdown menggunakan SQLite FTS5.
 - Satu inferensi pada satu waktu dan endpoint OpenAI-compatible.
 - Reconnect otomatis saat jaringan terputus (Network is Unreachable).
-- CLI owner lokal: `list-chats`, `enable-chat`, `disable-chat`, `set-delay`,
+- CLI owner lokal: `chat-enable`, `chat-disable`, `list-chats`, `enable-chat`, `disable-chat`, `set-delay`,
   `pause-chat`, `resume-chat`, `reindex`, dan `exit`.
 - Isi pesan tidak masuk log; buffer pesan dihapus setelah selesai, revoke, handoff, atau restart.
 
@@ -110,6 +112,8 @@ Setelah `python main.py` berjalan, ketik di prompt `ai-admin>`:
 
 ```text
 list-chats                    — lihat semua chat dan statusnya
+chat-enable                   — aktifkan AI global (default aktif)
+chat-disable                  — hentikan seluruh balasan otomatis
 enable-chat <CHAT_ID>         — aktifkan AI untuk chat tersebut
 disable-chat <CHAT_ID>        — nonaktifkan AI untuk chat tersebut
 pause-chat <CHAT_ID>          — jeda sementara (gunakan resume-chat untuk lanjut)
@@ -119,15 +123,20 @@ reindex                       — indeks ulang knowledge
 exit                          — matikan aplikasi
 ```
 
-Gunakan `list-chats` untuk menemukan `CHAT_ID` setelah orang pertama kali mengirim DM.
+Chat baru tidak memerlukan aktivasi. `chat-enable` tidak membatalkan pengecualian
+`disable-chat <CHAT_ID>`; gunakan `enable-chat <CHAT_ID>` untuk menghapus pengecualian itu.
+Sakelar global tersimpan di SQLite dan tetap berlaku setelah restart. `chat-disable`
+membatalkan job lama; mengaktifkannya kembali tidak memutar ulang pesan saat AI mati.
+Migrasi mengaktifkan chat lama yang belum pernah dikonfigurasi, tetapi mempertahankan
+chat yang secara eksplisit dinonaktifkan pemilik. Tidak ada pesan historis yang dikirim ulang.
 
 ### Flow: Auto-Resume setelah Manual Reply
 
-1. **Pemilik aktifkan AI dari CLI:**
+1. **AI global aktif secara default (atau aktifkan lagi dari CLI):**
    ```
-   ai-admin> enable-chat 12345
+    ai-admin> chat-enable
    ```
-   → `ai_enabled=1`, state=`IDLE`
+    → DM baru otomatis aktif, tanpa ID chat
 
 2. **User kirim pesan:**
    ```
@@ -150,7 +159,7 @@ Gunakan `list-chats` untuk menemukan `CHAT_ID` setelah orang pertama kali mengir
 5. **Cycle repeat:** Manual reply → Auto-resume → Jawab → Manual reply → ...
 
 **Tidak perlu perintah CLI tambahan.** Pemilik hanya perlu:
-- `enable-chat` saat pertama kali mengaktifkan chat
+- `chat-enable` untuk mengaktifkan AI global setelah dimatikan
 - `disable-chat` jika ingin menonaktifkan selamanya
 - `pause-chat` / `resume-chat` untuk jeda manual yang eksplisit
 
@@ -170,13 +179,112 @@ Langkah untuk meminimalkan putus koneksi:
 - Aplikasi sudah dilengkapi reconnect otomatis dengan backoff 10 → 30 → 60 → 120 detik.
   Job yang tertunda dibatalkan saat reconnect agar tidak mengirim balasan basi.
 - Jika sering putus, set `TG_TIMEOUT_SECONDS=60` di `.env` untuk timeout yang lebih toleran.
-2. Pemilik menjalankan `enable-chat <CHAT_ID>` dari CLI Termux.
-3. Pesan berikutnya ditampung dan timer diperbarui untuk setiap pesan baru.
-4. Setelah delay, AI menghasilkan balasan berdasarkan knowledge dan mengirimnya dengan
-   penanda `---\nBalasan otomatis AI`.
-5. Balasan manual pemilik mengubah state menjadi `HUMAN_ACTIVE` dan membatalkan job AI.
-6. Pemilik dapat menjeda chat dengan `pause-chat` dan melanjutkan dengan `resume-chat`.
-7. `disable-chat` menonaktifkan AI untuk chat tersebut dan menghapus buffer.
+
+## Katalog menu, harga, dan stok Google Sheets
+
+Harga/stok dijawab langsung dari data terstruktur, bukan disimpulkan oleh LLM.
+FAQ, layanan, dan keluhan tetap memakai knowledge TXT/Markdown + LLM lokal.
+Delay balasan yang sudah ada tetap berlaku untuk keduanya.
+
+### CSV publik tanpa API key (paling sederhana)
+
+Gunakan tautan Google Sheets **Publish to web → CSV**, seperti URL `/pub?output=csv`.
+Tidak perlu mengaktifkan Google Sheets API, membuat service account, memasang google-auth,
+atau menyimpan key JSON. **Data yang dipublikasikan dapat dibaca publik**; jangan sertakan
+informasi pelanggan, kredensial, atau data pribadi di tab yang dipublikasikan.
+
+Di `telegram_personal_ai/.env`, isi:
+
+```env
+CATALOG_CSV_URL=https://docs.google.com/spreadsheets/d/e/ID_PUBLIKASI/pub?output=csv
+CATALOG_CACHE_SECONDS=30
+CATALOG_TIMEOUT_SECONDS=15
+```
+
+`CATALOG_CSV_URL` diprioritaskan atas `CATALOG_SHEET_ID`; kredensial API diabaikan
+dalam mode ini. Header baris pertama harus:
+
+```csv
+kode,nama,harga,stok,aktif,deskripsi,alias
+LELE,Paket Lele,17300,12,TRUE,"Nasi, lele, sambal",lele goreng
+AYAM,Paket Ayam,18000,0,TRUE,"Nasi, ayam, sambal",ayam goreng
+```
+
+Isi ini di sel spreadsheet, bukan satu sel berisi seluruh CSV. Harga/stok harus
+angka bulat tanpa format mata uang/pemisah ribuan (gunakan format Plain text atau angka
+tanpa pemisah ribuan); CSV Google mengekspor format tampilan, bukan nilai mentah API.
+Pilih tab menu yang benar ketika memublikasikan. Respons CSV kosong/HTML/header salah
+tidak dianggap sebagai stok kosong: bot menyatakan data belum dapat diperiksa.
+
+Instal `requirements.txt` seperti biasa lalu restart bot. Selain cache bot,
+Google dapat menunda pembaruan hasil publikasi; ini bukan stok real-time yang dijamin.
+`CATALOG_CACHE_SECONDS=0` hanya mematikan cache bot, bukan cache publikasi Google.
+
+### Alternatif: persiapan sheet privat melalui API
+
+1. Aktifkan **Google Sheets API** di project Google Cloud Anda.
+2. Buat service account, unduh key JSON, simpan sebagai
+   `telegram_personal_ai/data/google-service-account.json`. Folder `data/` diabaikan Git.
+   Jangan taruh key dalam knowledge atau membagikannya; pada Termux gunakan `chmod 600`.
+3. Share spreadsheet **hanya sebagai Viewer** ke `client_email` service account.
+   Tidak perlu opsi "Publish to web" atau akses publik, maupun role Editor.
+4. Buat tab **Menu**, dengan header baris pertama berikut (kolom `alias` opsional):
+
+   | kode | nama | harga | stok | aktif | deskripsi | alias |
+   |---|---|---:|---:|---|---|---|
+   | LELE | Paket Lele | 17300 | 12 | TRUE | Nasi, lele, sambal | lele goreng\|paket lele goreng |
+   | AYAM | Paket Ayam | 18000 | 0 | TRUE | Nasi, ayam, sambal | ayam goreng |
+
+   Ini hanya contoh; isi harga/stok asli milik Anda. Harga dalam rupiah bulat,
+   stok bilangan bulat nonnegatif, **bukan teks** `Rp17.300`. `aktif` harus TRUE/FALSE
+   (checkbox boleh). Gunakan kode unik dan alias yang tidak ambigu, dipisahkan `|`.
+   `stok=0` berarti habis; `aktif=FALSE` tidak ditampilkan pada katalog umum,
+   tetapi pertanyaan spesifik tetap dijawab "Tidak tersedia".
+
+5. Di `telegram_personal_ai/.env`, tambahkan:
+
+   ```env
+   CATALOG_SHEET_ID=ID_DARI_URL_SPREADSHEET
+   CATALOG_SHEET_RANGE=Menu!A1:G1000
+   GOOGLE_APPLICATION_CREDENTIALS=data/google-service-account.json
+   CATALOG_CACHE_SECONDS=30
+   CATALOG_TIMEOUT_SECONDS=15
+   ```
+
+   ID adalah bagian antara `/d/` dan `/edit` pada URL Google Sheets, bukan `gid`.
+   Range harus mencakup header dan semua baris menu. Perbesar jika lebih dari 999 menu.
+   Kosongkan `CATALOG_CSV_URL` untuk memakai API privat. Kosongkan kedua sumber untuk
+   menonaktifkan integrasi dan memakai RAG seperti semula.
+
+6. Instal dependensi dari direktori `telegram_personal_ai`, lalu restart:
+
+   ```bash
+   # Termux: gunakan paket prebuilt agar tidak perlu build cryptography/Rust di HP
+   pkg install python-cryptography
+   python -m pip install -r requirements-sheets-api.txt
+   python main.py
+   ```
+
+### Perilaku jawaban
+
+- "Daftar menu" / "Harga menu berapa?" → semua menu aktif, harga, deskripsi, dan stok.
+- "Harga lele?" → hanya menu yang cocok dengan kode/nama/alias.
+- "Ada lele dan ayam?" → kedua menu, termasuk status habis.
+- Nama yang tidak cocok → minta klarifikasi, bukan mengarang harga.
+- Keluhan dan FAQ → tetap RAG/LLM; tambahkan sinonim menu pada kolom `alias` untuk pencarian.
+- Data kosong/salah, timeout, atau izin Google bermasalah → informasikan data belum
+  dapat diperiksa. Jangan memakai cache kedaluwarsa untuk menyatakan stok tersedia.
+
+Cache adalah snapshot maksimal 30 detik, **bukan sinkronisasi instan/push**.
+Gunakan `CATALOG_CACHE_SECONDS=0` untuk membaca sheet setiap pertanyaan.
+Bot hanya membaca: tidak mengurangi stok, menyimpan pesanan, atau menjamin reservasi.
+Stok akurat hanya jika Anda/sistem kasir memperbarui sheet. Setiap jawaban menampilkan
+waktu pemeriksaan. Katalog panjang dikirim dalam beberapa pesan teks.
+
+Saat integrasi aktif, hapus harga/stok lama dari knowledge dan sisakan kebijakan/FAQ
+agar pertanyaan non-katalog tidak mengambil angka usang. Google hanya menerima permintaan
+CSV atau ID/range dan kredensial API (mode privat), bukan isi pesan pelanggan. Pengujian otomatis menggunakan
+mock API; uji izin service account dan perubahan stok asli sebelum produksi.
 
 ## Testing
 

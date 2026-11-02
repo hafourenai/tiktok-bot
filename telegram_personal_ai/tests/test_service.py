@@ -24,8 +24,8 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_owner_enables_chat_then_delayed_answer(storage, tmp_path):
-    """AI hanya berjalan setelah pemilik mengaktifkan chat dari CLI."""
+def test_new_chat_gets_delayed_answer_without_opt_in(storage, tmp_path):
+    """DM baru otomatis diproses tanpa aktivasi per chat."""
     async def scenario():
         cfg = settings(tmp_path)
         cfg.knowledge_dir.mkdir()
@@ -39,19 +39,14 @@ def test_owner_enables_chat_then_delayed_answer(storage, tmp_path):
 
         service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
 
-        # Pesan masuk sebelum diaktifkan — tidak diproses
         await service.incoming(1, 1, "Kapan layanan buka?")
-        await asyncio.sleep(1.1)
-        assert len(sent) == 0
-
-        # Pemilik mengaktifkan dari CLI
-        storage.set_chat_enabled(1, True)
-
-        await service.incoming(1, 2, "Kapan layanan buka?")
         await asyncio.sleep(1.1)
         assert len(sent) == 1
         assert "Jawaban berdasarkan dokumen" in sent[0][1]
         assert AI_FOOTER in sent[0][1]
+        assert sent[0][1].endswith("---\nBalasan Otomatis")
+        assert "Sumber:" not in sent[0][1]
+        assert "kb.txt" not in sent[0][1]
         assert storage.conversation(1)["state"] == ConversationState.AI_ACTIVE
         await service.shutdown()
 
@@ -70,6 +65,7 @@ def test_user_commands_do_not_activate_ai(storage, tmp_path):
             sent.append(text)
 
         service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
+        storage.set_chat_enabled(2, False)
         await service.incoming(2, 1, "/aiaktif")
         await service.incoming(2, 2, "/aimati")
         await service.incoming(2, 3, "halo")
@@ -208,7 +204,7 @@ def test_auto_resume_on_new_message_after_manual_reply(storage, tmp_path):
         sent.clear()
 
         # Pesan baru masuk — auto-resume dan diproses
-        await service.incoming(7, 2, "Terimakasih!")
+        await service.incoming(7, 2, "Hari apa layanan buka?")
         await asyncio.sleep(1.1)
         assert len(sent) == 1
         assert "Jawaban berdasarkan dokumen" in sent[0][1]
@@ -216,7 +212,7 @@ def test_auto_resume_on_new_message_after_manual_reply(storage, tmp_path):
         # Pesan ketiga juga diproses (cycle repeat)
         sent.clear()
         service.manual_reply(7)
-        await service.incoming(7, 3, "Sampai jumpa!")
+        await service.incoming(7, 3, "Layanan buka Senin?")
         await asyncio.sleep(1.1)
         assert len(sent) == 1
         assert "Jawaban berdasarkan dokumen" in sent[0][1]

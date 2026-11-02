@@ -1,0 +1,3 @@
+# Hanya diperlukan jika memakai API privat, bukan CSV publik.
+-r requirements.txt
+google-auth[requests]>=2.29,<3

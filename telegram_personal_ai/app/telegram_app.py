@@ -7,6 +7,7 @@ from telethon import TelegramClient, events
 from telethon.errors import AuthKeyError, FloodWaitError
 
 from .admin import AdminCli
+from .catalog import SheetsCatalog
 from .config import Settings
 from .llm import LlmClient
 from .rag import RagEngine
@@ -27,6 +28,7 @@ class TelegramAssistantApp:
         self.storage.cancel_all_stale_jobs()
         self.rag = RagEngine(self.storage, settings.knowledge_dir)
         self.llm = LlmClient(settings)
+        self.catalog = SheetsCatalog(settings)
         self.client = TelegramClient(
             str(settings.session_path),
             settings.api_id,
@@ -39,7 +41,7 @@ class TelegramAssistantApp:
         )
         self._system_sends: set[int] = set()
         self._system_message_ids: set[tuple[int, int]] = set()
-        self.service = AssistantService(settings, self.storage, self.rag, self.llm, self.send_system)
+        self.service = AssistantService(settings, self.storage, self.rag, self.llm, self.send_system, self.catalog)
         self.client.add_event_handler(self.on_incoming, events.NewMessage(incoming=True))
         self.client.add_event_handler(self.on_edited, events.MessageEdited(incoming=True))
         self.client.add_event_handler(self.on_deleted, events.MessageDeleted())
@@ -48,8 +50,15 @@ class TelegramAssistantApp:
     async def send_system(self, chat_id: int, text: str) -> None:
         self._system_sends.add(chat_id)
         try:
-            message = await self.client.send_message(chat_id, text)
-            self._system_message_ids.add((chat_id, message.id))
+            # Catalogs may exceed Telegram's message limit. Send plain text in safe chunks.
+            remaining = text
+            while remaining:
+                chunk = remaining[:1800]
+                if len(remaining) > 1800 and "\n" in chunk:
+                    chunk = chunk[:chunk.rfind("\n") + 1]
+                remaining = remaining[len(chunk):]
+                message = await self.client.send_message(chat_id, chunk, parse_mode=None)
+                self._system_message_ids.add((chat_id, message.id))
             if len(self._system_message_ids) > 1000:
                 self._system_message_ids = set(list(self._system_message_ids)[-500:])
         except FloodWaitError as exc:
@@ -97,6 +106,7 @@ class TelegramAssistantApp:
         finally:
             await self.service.shutdown()
             await self.llm.close()
+            await self.catalog.close()
             self.storage.close()
 
     async def _run_with_reconnect(self) -> None:
@@ -113,7 +123,7 @@ class TelegramAssistantApp:
                 cli_task = None
                 if self.settings.admin_cli:
                     cli_task = asyncio.create_task(
-                        AdminCli(self.storage, self.rag, self.client.disconnect).run()
+                        AdminCli(self.storage, self.rag, self.client.disconnect, self.service.shutdown).run()
                     )
                 await self.client.run_until_disconnected()
                 if cli_task:

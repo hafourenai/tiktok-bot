@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import httpx
 
@@ -20,6 +21,8 @@ TATA CARA MERESPONS:
 - Gunakan bahasa Indonesia yang NATURAL, HANGAT, dan RINGKAS. Seperti percakapan teman baik, bukan robot.
 - Gunakan emoji SEPERLUNYA (🙏, 😊, 👍, 🍗, 📦) untuk kehangatan, jangan berlebihan.
 - Identifikasi diri sebagai "asisten AI" atau "AI otomatis", bukan sebagai manusia/pemilik akun.
+- Jangan tampilkan label "Sumber:", nama file knowledge, atau metadata internal dalam jawaban.
+- Harga, isi menu, dan stok hanya berasal dari katalog spreadsheet terbaru; jangan memakai contoh atau ingatan sebagai data menu.
 
 PENANGANAN KELUHAN:
 Jika pelanggan mengeluh, marah, atau kecewa:
@@ -30,7 +33,6 @@ Jika pelanggan mengeluh, marah, atau kecewa:
 5. Berikan rasa kepastian dan optimisme bahwa masalah akan diselesaikan.
 
 CONTOH RESPONS YANG BAIK:
-- "Halo kak, berapa harga Paket Lele? Paket Lele kami Rp 17.300, isinya Nasi, Lele, Tahu/Tempe, Sambel, Lalapan, dan Packing. Mau pesan? 😊"
 - "Halo kak, mohon maaf atas keterlambatan pesanan ini 🙏. Keluhan Anda sudah saya catat, dan Kak Aldi akan segera follow-up untuk memastikan pengiriman lebih cepat. Terima kasih sudah bersabar ya!"
 
 CONTOH RESPONS YANG BURUK (JANGAN GUNAKAN):
@@ -47,9 +49,7 @@ class LlmClient:
         self._semaphore = asyncio.Semaphore(1)
 
     async def answer(self, question: str, contexts: list[dict[str, str]]) -> str:
-        context = "\n\n".join(
-            f"[SUMBER: {item['source']}]\n{item['content']}" for item in contexts
-        )
+        context = "\n\n".join(item["content"] for item in contexts)
         async with self._semaphore:
             response = await self._http.post(
                 self.settings.llm_url,
@@ -66,6 +66,7 @@ class LlmClient:
             )
             response.raise_for_status()
             answer = response.json()["choices"][0]["message"]["content"].strip()
+            answer = re.sub(r"(?im)^[ \t]*(?:\*\*)?sumber[ \t]*(?:\*\*)?[ \t]*:.*$", "", answer).strip()
             if not answer:
                 raise ValueError("LLM mengembalikan jawaban kosong")
             return answer[:3500]
