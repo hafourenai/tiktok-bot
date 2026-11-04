@@ -327,6 +327,11 @@ class Storage:
             (JobStatus.CANCELLED, now(), chat_id, JobStatus.PENDING, JobStatus.PROCESSING),
         )
 
+    def clear_messages(self, chat_id: int) -> None:
+        """Clear message buffer dan batalkan pending jobs. Digunakan saat spam terdeteksi."""
+        with self._lock, self._db:
+            self._clear_chat_locked(chat_id)
+
     def close(self) -> None:
         with self._lock:
             self._db.close()

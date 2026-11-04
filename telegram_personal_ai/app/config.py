@@ -45,6 +45,8 @@ class Settings:
     retrieval_limit: int
     log_level: str
     admin_cli: bool
+    spam_window_seconds: int = 60
+    spam_warn_threshold: int = 5
     catalog_sheet_id: str = ""
     catalog_sheet_range: str = "Menu!A1:G1000"
     catalog_credentials: Path | None = None
@@ -78,6 +80,10 @@ class Settings:
         delay = int(os.getenv("AUTO_REPLY_DELAY_SECONDS", "180"))
         if delay < 1:
             raise ValueError("AUTO_REPLY_DELAY_SECONDS minimal 1")
+        spam_window = int(os.getenv("SPAM_WINDOW_SECONDS", "60"))
+        spam_threshold = int(os.getenv("SPAM_WARN_THRESHOLD", "5"))
+        if spam_window < 1 or spam_threshold < 1:
+            raise ValueError("SPAM_WINDOW_SECONDS dan SPAM_WARN_THRESHOLD minimal 1")
         cache_seconds = float(os.getenv("CATALOG_CACHE_SECONDS", "30"))
         catalog_timeout = float(os.getenv("CATALOG_TIMEOUT_SECONDS", "15"))
         if cache_seconds < 0 or catalog_timeout <= 0:
@@ -107,6 +113,8 @@ class Settings:
             retrieval_limit=int(os.getenv("RAG_TOP_K", "3")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             admin_cli=_bool("ADMIN_CLI", True),
+            spam_window_seconds=spam_window,
+            spam_warn_threshold=spam_threshold,
             catalog_sheet_id=os.getenv("CATALOG_SHEET_ID", "").strip(),
             catalog_sheet_range=os.getenv("CATALOG_SHEET_RANGE", "Menu!A1:G1000"),
             catalog_credentials=base / credentials if credentials else None,

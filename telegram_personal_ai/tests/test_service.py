@@ -21,6 +21,7 @@ def settings(tmp_path: Path) -> Settings:
         max_buffer_chars=1000, llm_url="http://127.0.0.1:8080/v1/chat/completions",
         llm_model="test", llm_timeout=1, llm_max_tokens=20, llm_temperature=0,
         allow_remote_llm=False, retrieval_limit=3, log_level="INFO", admin_cli=False,
+        spam_window_seconds=60, spam_warn_threshold=5,
     )
 
 
@@ -216,6 +217,109 @@ def test_auto_resume_on_new_message_after_manual_reply(storage, tmp_path):
         await asyncio.sleep(1.1)
         assert len(sent) == 1
         assert "Jawaban berdasarkan dokumen" in sent[0][1]
+
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_spam_rate_limit_sends_acknowledgment(storage, tmp_path):
+    """Jika pelanggan kirim 5+ pesan dalam 60 detik, bot kirim acknowledgment sekali."""
+    async def scenario():
+        cfg = replace(settings(tmp_path), spam_window_seconds=60, spam_warn_threshold=5, auto_reply_delay=1)
+        cfg.knowledge_dir.mkdir()
+        (cfg.knowledge_dir / "kb.txt").write_text("Info penting.", encoding="utf-8")
+        rag = RagEngine(storage, cfg.knowledge_dir)
+        rag.reindex()
+        sent = []
+
+        async def sender(chat_id, text):
+            sent.append((chat_id, text))
+
+        service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
+
+        # Kirim 4 pesan — harus diproses normal (di-buffer dengan debounce)
+        await service.incoming(10, 1, "Halo")
+        await service.incoming(10, 2, "Halo lagi")
+        await service.incoming(10, 3, "Halo lagi lagi")
+        await service.incoming(10, 4, "Halo lagi lagi lagi")
+        assert len(sent) == 0  # Masih dalam debounce
+
+        # Pesan ke-5 mencapai threshold — kirim acknowledgment
+        await service.incoming(10, 5, "Halo ke-5")
+        await asyncio.sleep(0.1)
+        assert len(sent) == 1
+        assert "Pesan kamu sudah kami terima" in sent[0][1]
+        assert "akan segera dibalas" in sent[0][1]
+        assert AI_FOOTER in sent[0][1]
+
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_spam_rate_limit_ignores_subsequent_messages(storage, tmp_path):
+    """Setelah acknowledgment, pesan berikutnya dalam window diabaikan."""
+    async def scenario():
+        cfg = replace(settings(tmp_path), spam_window_seconds=60, spam_warn_threshold=3, auto_reply_delay=1)
+        cfg.knowledge_dir.mkdir()
+        rag = RagEngine(storage, cfg.knowledge_dir)
+        sent = []
+
+        async def sender(chat_id, text):
+            sent.append(text)
+
+        service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
+
+        # Pesan 1-3 akan memicu acknowledgment
+        await service.incoming(11, 1, "A")
+        await service.incoming(11, 2, "B")
+        await service.incoming(11, 3, "C")
+        await asyncio.sleep(0.1)
+        assert len(sent) == 1 and "terima" in sent[0]
+
+        # Pesan 4-6 harus diabaikan
+        sent.clear()
+        await service.incoming(11, 4, "D")
+        await service.incoming(11, 5, "E")
+        await service.incoming(11, 6, "F")
+        await asyncio.sleep(1.2)
+        assert len(sent) == 0  # Tidak ada balasan baru
+
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_spam_rate_limit_window_reset(storage, tmp_path):
+    """Window spam direset setelah spam_window_seconds."""
+    async def scenario():
+        cfg = replace(settings(tmp_path), spam_window_seconds=1, spam_warn_threshold=2, auto_reply_delay=0.5)
+        cfg.knowledge_dir.mkdir()
+        (cfg.knowledge_dir / "kb.txt").write_text("Jawaban berdasarkan dokumen pengetahuan.", encoding="utf-8")
+        rag = RagEngine(storage, cfg.knowledge_dir)
+        rag.reindex()
+        sent = []
+
+        async def sender(chat_id, text):
+            sent.append(text)
+
+        service = AssistantService(cfg, storage, rag, FakeLlm(), sender)
+
+        # Pesan 1-2 dalam window pertama → acknowledgment
+        await service.incoming(12, 1, "tanya")
+        await service.incoming(12, 2, "tanya")
+        await asyncio.sleep(0.1)
+        assert len(sent) == 1 and "terima" in sent[0]
+
+        # Tunggu window selesai (1 detik)
+        sent.clear()
+        await asyncio.sleep(1.1)
+
+        # Pesan baru setelah window reset — diproses normal (tidak spam lagi)
+        await service.incoming(12, 3, "apa dokumen pengetahuan?")
+        await asyncio.sleep(0.6)
+        assert len(sent) == 1 and "Jawaban berdasarkan dokumen" in sent[0]
 
         await service.shutdown()
 

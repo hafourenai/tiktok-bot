@@ -32,6 +32,8 @@ class AssistantService:
         self.sender = sender
         self.catalog = catalog
         self.tasks: dict[int, asyncio.Task] = {}
+        # Per-chat spam tracking: {chat_id: (window_start_time, message_count, warned)}
+        self.spam_tracker: dict[int, tuple[datetime, int, bool]] = {}
 
     async def incoming(self, chat_id: int, message_id: int, text: str) -> None:
         if not self.storage.global_enabled():
@@ -50,6 +52,12 @@ class AssistantService:
 
         if self.storage.is_duplicate_message(chat_id, message_id, text[: self.settings.max_buffer_chars]):
             return
+        
+        # Cek spam rate limit
+        is_spam = self._check_spam(chat_id)
+        if is_spam:
+            return
+        
         self.cancel(chat_id)
         version = self.storage.buffer_message(
             chat_id, message_id, text[: self.settings.max_buffer_chars],
@@ -61,6 +69,46 @@ class AssistantService:
         self.tasks[chat_id] = asyncio.create_task(
             self._delayed(chat_id, job_id, version, delay), name=f"reply-{chat_id}"
         )
+
+    def _check_spam(self, chat_id: int) -> bool:
+        """
+        Cek apakah chat_id melampaui spam threshold dalam window waktu tertentu.
+        Jika ya, cancel pending job, clear buffer, kirim acknowledgment sekali.
+        Return True untuk mengabaikan pesan berikutnya.
+        Return False jika pesan harus diproses normal.
+        """
+        now = datetime.now(UTC)
+        tracker = self.spam_tracker.get(chat_id)
+        
+        # Reset window jika sudah habis
+        if tracker is None or (now - tracker[0]).total_seconds() > self.settings.spam_window_seconds:
+            self.spam_tracker[chat_id] = (now, 1, False)
+            return False
+        
+        window_start, count, warned = tracker
+        new_count = count + 1
+        
+        # Jika sudah kirim warning dan masih dalam window, abaikan pesan
+        if warned:
+            self.spam_tracker[chat_id] = (window_start, new_count, True)
+            return True
+        
+        # Jika mencapai threshold, batalkan job, clear buffer, kirim warning
+        if new_count >= self.settings.spam_warn_threshold:
+            self.spam_tracker[chat_id] = (window_start, new_count, True)
+            self.cancel(chat_id)  # Batalkan _delayed job yang pending
+            self.storage.clear_messages(chat_id)  # Clear buffer
+            asyncio.create_task(
+                self.sender(
+                    chat_id,
+                    "Halo kak 😊 Pesan kamu sudah kami terima ya. Mohon tunggu sebentar, akan segera dibalas." + AI_FOOTER,
+                )
+            )
+            return True
+        
+        # Masih dalam threshold, proses normal
+        self.spam_tracker[chat_id] = (window_start, new_count, False)
+        return False
 
     def messages_deleted(self, chat_id: int, message_ids: list[int]) -> None:
         if self.storage.delete_messages(chat_id, message_ids):

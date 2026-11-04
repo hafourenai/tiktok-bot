@@ -11,6 +11,7 @@ Grup, channel, dan pengirim bot tidak diproses. Uji dengan akun kedua sebelum di
 - Pengecualian per chat tetap didukung; pengguna tidak bisa mengubah kontrol admin.
 - Katalog harga/stok dari CSV publik atau Google Sheets privat, tanpa inferensi LLM untuk jawaban katalog.
 - Setiap balasan ditutup dengan penanda `---\nBalasan Otomatis`, tanpa label sumber/nama file knowledge. Emoji diperbolehkan seperlunya.
+- **Rate limit spam**: jika pelanggan mengirim ≥5 pesan dalam 60 detik, bot kirim acknowledgment sekali lalu abaikan pesan berikutnya hingga window habis.
 - State per chat dan pending job persisten di SQLite.
 - Debounce pesan, message versioning, serta validasi ulang sebelum kirim.
 - Deteksi balasan manual dari perangkat Telegram mana pun.
