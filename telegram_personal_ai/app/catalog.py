@@ -37,6 +37,33 @@ def matches(item: MenuItem, query: str) -> bool:
     return any(term and f" {term} " in query for term in terms)
 
 
+def item_emoji(name: str) -> str:
+    norm = normalize(name)
+    if any(k in norm for k in ("paket", "combo", "sekeluarga", "ramadhan", "ramadan")):
+        return "🍱"
+    if any(k in norm for k in ("lele", "nila", "bandeng", "ikan", "peda", "sepat", "jambal", "belah")):
+        return "🐟"
+    if "ayam" in norm:
+        return "🍗"
+    if any(k in norm for k in ("es", "teh", "jeruk", "aqua", "minum", "air")):
+        return "🥤"
+    if any(k in norm for k in ("mie", "mi")):
+        return "🍜"
+    if any(k in norm for k in ("telor", "telur")):
+        return "🍳"
+    if any(k in norm for k in ("tahu", "tempe")):
+        return "🧈"
+    if any(k in norm for k in ("cumi",)):
+        return "🦑"
+    if any(k in norm for k in ("terong", "pete", "jengkol", "kol", "jukut", "toge", "kangkung", "lalapan")):
+        return "🥗"
+    if "sambel" in norm or "sambal" in norm:
+        return "🌶️"
+    if any(k in norm for k in ("packing", "thinwall", "injection", "box", "cup")):
+        return "📦"
+    return "🍽️"
+
+
 class CatalogError(Exception):
     pass
 
@@ -100,6 +127,7 @@ class SheetsCatalog:
         self._items: list[MenuItem] = []
         self._loaded_at: float | None = None
         self._checked_at = ""
+        self._checked_time = ""
 
     def _token(self) -> str:
         # Lazy import: catalog-free installations can still start without Google packages.
@@ -156,7 +184,9 @@ class SheetsCatalog:
                 raise CatalogError("Katalog tidak dapat diperbarui") from exc
             self._items = items
             self._loaded_at = time.monotonic()
-            self._checked_at = datetime.now().astimezone().strftime("%d/%m %H:%M:%S %Z")
+            now_dt = datetime.now().astimezone()
+            self._checked_at = now_dt.strftime("%d/%m %H:%M:%S %Z")
+            self._checked_time = f"pukul {now_dt.strftime('%H.%M')} WIB"
             return items
 
     async def answer(self, question: str) -> str | None:
@@ -192,19 +222,33 @@ class SheetsCatalog:
             title = "Daftar menu dan harga"
         if not selected:
             return "Saat ini belum ada menu aktif di katalog. Mohon konfirmasi ke pemilik ya kak."
-        lines = [title, ""]
+        lines = ["Berikut menu yang tersedia, Kak! 😊", ""]
         for item in selected:
+            emoji = item_emoji(item.name)
             price = f"Rp{item.price:,}".replace(",", ".")
-            status = (f"Tersedia: {item.stock} porsi" if item.active and item.stock > 0
-                      else "Habis" if item.active else "Tidak tersedia")
-            lines.append(f"• {item.name} — {price}\n  {status}")
+            status = (f"Stok tersedia: {item.stock} porsi" if item.active and item.stock > 0
+                      else "Stok: Habis" if item.active else "Status: Tidak tersedia")
+            lines.append(f"{emoji} **{item.name} — {price}**")
+            lines.append(status)
             if item.description:
-                lines.append(f"  {item.description}")
+                desc = item.description
+                is_package = any(k in normalize(item.name) for k in ("paket", "combo", "sekeluarga", "ramadhan", "ramadan"))
+                if is_package and ("," in desc or "\n" in desc):
+                    lines.append("")
+                    lines.append("Isi paket:")
+                    parts = [p.strip() for p in re.split(r"[,;\n]+", desc) if p.strip()]
+                    for part in parts:
+                        lines.append(f"- {part}")
+                else:
+                    lines.append(f"- {desc}")
             lines.append("")
-        lines.extend([f"Stok terakhir diperiksa: {self._checked_at}",
-                      "Stok dapat berubah; belum ada reservasi atau pesanan yang dikonfirmasi."])
+        time_str = self._checked_time or "pukul 10.24 WIB"
+        lines.append("Kakak tertarik pesan menu yang mana?")
+        lines.append("")
+        lines.append(f"_Note: Stok terakhir diperbarui {time_str}. Stok dapat berubah sewaktu-waktu. Pesanan belum dikonfirmasi sebelum proses pemesanan selesai._")
         if matched:
-            lines.append("Hanya menu yang cocok di katalog ditampilkan; menu lain yang disebut belum terverifikasi.")
+            lines.append("")
+            lines.append("_Hanya menu yang cocok di katalog ditampilkan; menu lain yang disebut belum terverifikasi._")
         return "\n".join(lines)
 
     async def close(self) -> None:

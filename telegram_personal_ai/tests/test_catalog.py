@@ -39,8 +39,8 @@ def test_listing_specific_multi_unknown_and_faq(tmp_path):
             one = await catalog.answer("harga lele berapa?")
             assert "Paket Lele" in one and "Paket Ayam" not in one
             multiple = await catalog.answer("Ada lele dan ayam?")
-            assert "Paket Lele" in multiple and "Paket Ayam" in multiple and "Habis" in multiple
-            assert "Tidak tersedia" in await catalog.answer("stok bebek")
+            assert "Paket Lele" in multiple and "Paket Ayam" in multiple and "Stok: Habis" in multiple
+            assert "Status: Tidak tersedia" in await catalog.answer("stok bebek")
             assert "belum ditemukan" in await catalog.answer("harga gurame berapa")
             assert await catalog.answer("jam buka kapan?") is None
             assert await catalog.answer("pesanan lele saya terlambat") is None
@@ -101,7 +101,7 @@ def test_zero_cache_reads_updated_stock(tmp_path):
         try:
             assert "12 porsi" in await catalog.answer("stok lele")
             values[1][3] = 0
-            assert "Habis" in await catalog.answer("stok lele")
+            assert "Stok: Habis" in await catalog.answer("stok lele")
         finally:
             await catalog.close()
     asyncio.run(scenario())

@@ -50,14 +50,18 @@ class TelegramAssistantApp:
     async def send_system(self, chat_id: int, text: str) -> None:
         self._system_sends.add(chat_id)
         try:
-            # Catalogs may exceed Telegram's message limit. Send plain text in safe chunks.
+            # Catalogs may exceed Telegram's message limit. Send formatted markdown in safe chunks.
             remaining = text
             while remaining:
                 chunk = remaining[:1800]
                 if len(remaining) > 1800 and "\n" in chunk:
                     chunk = chunk[:chunk.rfind("\n") + 1]
                 remaining = remaining[len(chunk):]
-                message = await self.client.send_message(chat_id, chunk, parse_mode=None)
+                try:
+                    message = await self.client.send_message(chat_id, chunk, parse_mode="md")
+                except Exception:
+                    # Fallback jika parsing markdown gagal pada potongan teks tak terduga
+                    message = await self.client.send_message(chat_id, chunk, parse_mode=None)
                 self._system_message_ids.add((chat_id, message.id))
             if len(self._system_message_ids) > 1000:
                 self._system_message_ids = set(list(self._system_message_ids)[-500:])
