@@ -226,7 +226,7 @@ class SheetsCatalog:
         for item in selected:
             emoji = item_emoji(item.name)
             price = f"Rp{item.price:,}".replace(",", ".")
-            status = (f"Stok tersedia: {item.stock} porsi" if item.active and item.stock > 0
+            status = ("Stok tersedia" if item.active and item.stock > 0
                       else "Stok: Habis" if item.active else "Status: Tidak tersedia")
             lines.append(f"{emoji} **{item.name} — {price}**")
             lines.append(status)
@@ -245,10 +245,10 @@ class SheetsCatalog:
         time_str = self._checked_time or "pukul 10.24 WIB"
         lines.append("Kakak tertarik pesan menu yang mana?")
         lines.append("")
-        lines.append(f"_Note: Stok terakhir diperbarui {time_str}. Stok dapat berubah sewaktu-waktu. Pesanan belum dikonfirmasi sebelum proses pemesanan selesai._")
+        lines.append(f"__Note: Stok terakhir diperbarui {time_str}. Stok dapat berubah sewaktu-waktu. Pesanan belum dikonfirmasi sebelum proses pemesanan selesai.__")
         if matched:
             lines.append("")
-            lines.append("_Hanya menu yang cocok di katalog ditampilkan; menu lain yang disebut belum terverifikasi._")
+            lines.append("__Hanya menu yang cocok di katalog ditampilkan; menu lain yang disebut belum terverifikasi.__")
         return "\n".join(lines)
 
     async def close(self) -> None:

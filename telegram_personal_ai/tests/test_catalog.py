@@ -61,12 +61,12 @@ def test_cache_and_expired_stock_never_used_on_failure(tmp_path):
             return httpx.Response(200, json={"values": VALUES})
         catalog = make_catalog(tmp_path, handler)
         try:
-            assert "12 porsi" in await catalog.answer("stok lele")
-            assert "12 porsi" in await catalog.answer("stok lele")
+            assert "Stok tersedia" in await catalog.answer("stok lele")
+            assert "Stok tersedia" in await catalog.answer("stok lele")
             assert len(calls) == 1
             catalog._loaded_at -= 31
             answer = await catalog.answer("stok lele")
-            assert "belum dapat diperiksa" in answer and "12 porsi" not in answer
+            assert "belum dapat diperiksa" in answer and "Stok tersedia" not in answer
         finally:
             await catalog.close()
     asyncio.run(scenario())
@@ -99,7 +99,7 @@ def test_zero_cache_reads_updated_stock(tmp_path):
         values = [row[:] for row in VALUES]
         catalog = make_catalog(tmp_path, lambda request: httpx.Response(200, json={"values": values}), ttl=0)
         try:
-            assert "12 porsi" in await catalog.answer("stok lele")
+            assert "Stok tersedia" in await catalog.answer("stok lele")
             values[1][3] = 0
             assert "Stok: Habis" in await catalog.answer("stok lele")
         finally:
@@ -168,7 +168,7 @@ def test_public_csv_redirect_no_auth_and_priority_over_api(tmp_path):
         try:
             assert catalog.enabled
             answer = await catalog.answer("harga lele")
-            assert "Rp17.300" in answer and "12 porsi" in answer
+            assert "Rp17.300" in answer and "Stok tersedia" in answer
             assert len(calls) == 2
         finally:
             await catalog.close()
