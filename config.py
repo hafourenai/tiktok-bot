@@ -1,67 +1,96 @@
 import os
+import re
+from pathlib import Path
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from dotenv import load_dotenv
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
-# Google Sheets CSV URL
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRPYK4IWDOYb3qACH2dZb1MRI8vC3Dx2G6BADd5LbORAiF1wVyT7_69q7VsghdHiswxjpK_A8PHPMcl/pub?output=csv"
 
-# Telegram Bot Token
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "your_token_here")
+def project_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else BASE_DIR / path
 
-# Folder untuk menyimpan gambar dan cache
-PUBLIC_DIR = "public"
-CACHE_DIR = "cache"
 
-# Kategori mapping
-KATEGORI_MAP = {
-    "SAT_": "🍖 Lauk Satuan",
-    "ASIN_": "🐟 Ikan Asin & Lauk Tambahan",
-    "SAY_": "🥬 Sayuran",
-    "PEL_": "🌶️ Pelengkap",
-    "MIN_": "🥤 Minuman",
-    "KEM_": "📦 Kemasan",
-    "REG_": "🍚 Paket Reguler",
-    "KEL_": "👨‍👩‍👧‍👦 Paket Sekeluarga",
-    "RAM_": "🌙 Paket Ramadhan",
-    "JUK_": "🍲 Paket Combo Jukut",
-    "TEH_": "🧋 Paket Es Teh Manis",
-    "JER_": "🧃 Paket Es Jeruk",
-}
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN belum diatur di .env")
 
-# Warna untuk kategori (RGB)
-KATEGORI_COLOR = {
-    "🍖 Lauk Satuan": "#FF6B6B",
-    "🐟 Ikan Asin & Lauk Tambahan": "#4ECDC4",
-    "🥬 Sayuran": "#95E1D3",
-    "🌶️ Pelengkap": "#FFA502",
-    "🥤 Minuman": "#00B4D8",
-    "📦 Kemasan": "#C7B3E5",
-    "🍚 Paket Reguler": "#FFB703",
-    "👨‍👩‍👧‍👦 Paket Sekeluarga": "#FB5607",
-    "🌙 Paket Ramadhan": "#8338EC",
-    "🍲 Paket Combo Jukut": "#FFBE0B",
-    "🧋 Paket Es Teh Manis": "#52B788",
-    "🧃 Paket Es Jeruk": "#06FFA5",
-}
+try:
+    ALLOWED_USER_ID = int(os.getenv("ALLOWED_TELEGRAM_USER_ID", "0"))
+    MAX_FILE_SIZE_MB = float(os.getenv("MAX_FILE_SIZE_MB", "50"))
+except ValueError as error:
+    raise RuntimeError("ALLOWED_TELEGRAM_USER_ID dan MAX_FILE_SIZE_MB harus valid") from error
 
-# Konfigurasi gambar
-IMAGE_CONFIG = {
-    "dpi": 150,
-    "figsize": (10, 14),
-    "bg_color": "#F8F9FA",
-    "header_bg": "#2C3E50",
-    "header_text": "#FFFFFF",
-    "row_height": 0.08,
-    "font_size_title": 24,
-    "font_size_category": 14,
-    "font_size_item": 11,
-    "font_size_small": 9,
-}
+if ALLOWED_USER_ID <= 0:
+    raise RuntimeError("ALLOWED_TELEGRAM_USER_ID belum diatur di .env")
 
-# Polling interval (dalam detik)
-POLLING_INTERVAL = 300  # 5 menit
+DOWNLOAD_DIR = str(project_path(os.getenv("DOWNLOAD_DIR", "downloads")))
+MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
 
-# Nama file output
-MENU_IMAGE = "menu.png"
-MENU_CACHE = "menu_cache.json"
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_GUILD_ID_RAW = os.getenv("DISCORD_GUILD_ID", "").strip()
+try:
+    DISCORD_GUILD_ID = int(DISCORD_GUILD_ID_RAW) if DISCORD_GUILD_ID_RAW else None
+except ValueError as error:
+    raise RuntimeError("DISCORD_GUILD_ID harus berupa angka") from error
+
+TIMEZONE = os.getenv("TIMEZONE", "Asia/Jakarta").strip()
+try:
+    ZoneInfo(TIMEZONE)
+except ZoneInfoNotFoundError as error:
+    raise RuntimeError("TIMEZONE tidak valid") from error
+
+VOICE_DATABASE_PATH = project_path(os.getenv("VOICE_DATABASE_PATH", "data/voice_stats.db"))
+VOICE_EXPORT_DIR = project_path(os.getenv("VOICE_EXPORT_DIR", "data/exports"))
+WEATHER_GEOCODER_URL = os.getenv("WEATHER_GEOCODER_URL", "https://nominatim.openstreetmap.org").strip()
+TIKTOK_FALLBACK_URL = os.getenv("TIKTOK_FALLBACK_URL", "https://snaptikhon.vercel.app/").strip()
+
+TIKTOK_URL_RE = re.compile(
+    r"^https?://(?:www\.)?(?:tiktok\.com/@[^/\s]+/video/\d+|(?:vm|vt)\.tiktok\.com/[A-Za-z0-9]+/?)(?:\?.*)?$",
+    re.IGNORECASE,
+)
+YOUTUBE_URL_RE = re.compile(
+    r"^https?://(?:www\.)?(?:youtube\.com/watch\?(?:.*&)?v=[-\w]{11}.*|youtu\.be/[-\w]{11}(?:\?.*)?|youtube\.com/embed/[-\w]{11}(?:\?.*)?)$",
+    re.IGNORECASE,
+)
+INSTAGRAM_URL_RE = re.compile(
+    r"^https?://(?:www\.)?instagram\.com/(?:p|reel|tv|stories/[A-Za-z0-9_.]+)/[A-Za-z0-9_-]+/?(?:\?[^\s#]*)?(?:#[^\s]*)?$",
+    re.IGNORECASE,
+)
+
+NEWS_ENABLED = os.getenv("NEWS_ENABLED", "true").lower() == "true"
+NEWS_DB_PATH = project_path(os.getenv("NEWS_DB_PATH", "data/news.db"))
+NEWS_MAX_ARTICLES = int(os.getenv("NEWS_MAX_ARTICLES", "5"))
+NEWS_CACHE_TTL_SECONDS = int(os.getenv("NEWS_CACHE_TTL_SECONDS", "180"))
+NEWS_LOOKBACK_HOURS = int(os.getenv("NEWS_LOOKBACK_HOURS", "48"))
+NEWS_HTTP_TIMEOUT_SECONDS = int(os.getenv("NEWS_HTTP_TIMEOUT_SECONDS", "12"))
+NEWS_EXTRACT_TIMEOUT_SECONDS = int(os.getenv("NEWS_EXTRACT_TIMEOUT_SECONDS", "15"))
+NEWS_LLM_BASE_URL = os.getenv("NEWS_LLM_BASE_URL", "http://127.0.0.1:8080").strip()
+NEWS_LLM_MODEL = os.getenv("NEWS_LLM_MODEL", "qwen3-0.6b").strip()
+NEWS_LLM_ALLOW_REMOTE = os.getenv("NEWS_LLM_ALLOW_REMOTE", "false").lower() == "true"
+NEWS_LLM_TEMPERATURE = float(os.getenv("NEWS_LLM_TEMPERATURE", "0.2"))
+NEWS_LLM_MAX_TOKENS = int(os.getenv("NEWS_LLM_MAX_TOKENS", "120"))
+NEWS_LLM_TIMEOUT_SECONDS = int(os.getenv("NEWS_LLM_TIMEOUT_SECONDS", "45"))
+NEWS_TOTAL_TIMEOUT_SECONDS = int(os.getenv("NEWS_TOTAL_TIMEOUT_SECONDS", "180"))
+NEWS_LLM_CONCURRENCY = int(os.getenv("NEWS_LLM_CONCURRENCY", "1"))
+NEWS_LLM_CONTEXT_TOKENS = int(os.getenv("NEWS_LLM_CONTEXT_TOKENS", "1024"))
+NEWS_LLM_HEALTH_TIMEOUT_SECONDS = float(os.getenv("NEWS_LLM_HEALTH_TIMEOUT_SECONDS", "2"))
+NEWS_LLM_COOLDOWN_SECONDS = int(os.getenv("NEWS_LLM_COOLDOWN_SECONDS", "300"))
+NEWS_SUMMARY_MODE = os.getenv("NEWS_SUMMARY_MODE", "auto").strip().lower()
+NEWS_EXTRACTIVE_MAX_SENTENCES = int(os.getenv("NEWS_EXTRACTIVE_MAX_SENTENCES", "2"))
+NEWS_EXTRACTIVE_MAX_WORDS = int(os.getenv("NEWS_EXTRACTIVE_MAX_WORDS", "60"))
+
+if NEWS_SUMMARY_MODE not in {"auto", "llm", "extractive"}:
+    raise RuntimeError("NEWS_SUMMARY_MODE harus auto, llm, atau extractive")
+
+if NEWS_ENABLED and not NEWS_LLM_ALLOW_REMOTE:
+    parsed_llm_url = urlparse(NEWS_LLM_BASE_URL)
+    if parsed_llm_url.hostname not in {"127.0.0.1", "localhost"}:
+        raise RuntimeError(
+            "NEWS_LLM_BASE_URL must use localhost/127.0.0.1 when NEWS_LLM_ALLOW_REMOTE=false. "
+            "Set NEWS_LLM_ALLOW_REMOTE=true to allow remote endpoints."
+        )
