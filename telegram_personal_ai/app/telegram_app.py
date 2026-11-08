@@ -71,6 +71,22 @@ class TelegramAssistantApp:
         finally:
             self._system_sends.discard(chat_id)
 
+    async def send_menu_image(self, chat_id: int, image_path: str) -> None:
+        """Send menu image ke user."""
+        self._system_sends.add(chat_id)
+        try:
+            await self.client.send_file(
+                chat_id,
+                image_path,
+                caption="[MENU TERSEDIA]\n\nSilakan pilih dari daftar di atas",
+            )
+            log.info("Menu image sent to chat %s", chat_id)
+        except Exception as exc:
+            log.error("Gagal send menu image ke chat %s: %s", chat_id, exc)
+            await self.send_system(chat_id, "Maaf, gagal menampilkan menu. Silakan coba lagi nanti.")
+        finally:
+            self._system_sends.discard(chat_id)
+
     async def on_incoming(self, event) -> None:
         if not event.is_private or not event.raw_text or event.chat_id is None:
             return
@@ -78,7 +94,15 @@ class TelegramAssistantApp:
         if getattr(sender, "bot", False) or getattr(event.message, "out", False):
             return
         try:
-            await self.service.incoming(event.chat_id, event.id, event.raw_text.strip())
+            # Check if menu request
+            text = event.raw_text.strip()
+            menu_image_path = await self.service.get_menu_image_path(text)
+            if menu_image_path:
+                await self.send_menu_image(event.chat_id, menu_image_path)
+                return
+            
+            # Normal message processing
+            await self.service.incoming(event.chat_id, event.id, text)
         except Exception:
             log.exception("Gagal menangani event masuk chat %s", event.chat_id)
 

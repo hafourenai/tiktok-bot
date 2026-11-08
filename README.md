@@ -1,168 +1,235 @@
-# Honey Assistant Bot
+# 🍽️ Bot Menu - Telegram Menu Image Generator
 
-Bot Telegram pribadi untuk satu pemilik. Menyediakan pengunduh media publik,
-pemantauan voice Discord, prakiraan cuaca BMKG, dan konversi dokumen.
+Sistem otomatis untuk generate gambar menu dari Google Sheets dan mengirimnya ke Telegram ketika ada request.
 
-## Fitur
+## 📋 Fitur
 
-| Layanan | Kemampuan |
-| --- | --- |
-| Downloader | Unduh media TikTok, YouTube, dan Instagram melalui URL publik. TikTok dan YouTube menawarkan kualitas **Biasa** atau **HD**. |
-| TikTok profile | `/stalk <username>` menampilkan ringkasan profil publik TikTok. |
-| Discord Voice | Memantau sesi voice, menampilkan statistik dan riwayat, serta membuat export Excel. |
-| Cuaca BMKG | Prakiraan hingga tingkat kelurahan/desa lewat lokasi GPS/venue atau pemilihan wilayah manual. |
-| Konverter | PDF ke DOCX/XLSX/PPTX/PNG, JPG/PNG ke PDF, serta DOCX/XLSX/PPTX ke PDF. |
-| Berita | RSS ANTARA/CNN Indonesia/The Guardian dengan ringkasan AI dan fallback deterministik tanpa AI. |
+✅ **Auto-fetch data** dari Google Sheets CSV  
+✅ **Filter stok** - Hanya tampilkan item dengan stok > 0 dan status aktif  
+✅ **Gambar menarik** - Desain menu dengan kategori berwarna dan typography yang legible  
+✅ **Telegram Bot** - Respond ke keyword "menu nya apa saja?" dan variasi lainnya  
+✅ **Polling otomatis** - Check perubahan stok setiap 5 menit (dapat dikonfigurasi)  
+✅ **Smart cache** - Hanya regenerate gambar jika ada perubahan stok  
 
-Bot hanya menerima DM dari `ALLOWED_TELEGRAM_USER_ID`. Download dibatasi dua pekerjaan sekaligus dan berkas sementara dibersihkan setelah diproses.
+## 🚀 Quick Start
 
-## Kebutuhan
+### 1. Setup Environment
 
-- Python 3.10 atau lebih baru
-- Node.js dan npm
-- FFmpeg
-- Token bot Telegram dan ID pengguna Telegram pemilik
-- Opsional: token bot Discord untuk pemantauan voice
-
-Di Termux, pasang kebutuhan sistem dengan:
-
-```sh
-pkg update
-pkg install python nodejs-lts ffmpeg git
-```
-
-Gunakan `nodejs` bila paket `nodejs-lts` tidak tersedia.
-
-## Instalasi dan menjalankan
-
-```sh
-git clone <URL-REPOSITORY> bot_honey
+```bash
+# Clone atau buka folder project
 cd bot_honey
-python -m venv venv
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-Aktifkan environment:
+### 2. Setup Telegram Bot Token
 
-```sh
-# Termux/Linux/macOS
-source venv/bin/activate
-
-# Windows PowerShell
-.\venv\Scripts\Activate.ps1
-```
-
-Pasang dependency dan buat konfigurasi:
-
-```sh
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-npm install
+```bash
+# Copy .env.example ke .env
 cp .env.example .env
+
+# Edit .env dan masukkan token Telegram (dapatkan dari @BotFather)
+TELEGRAM_TOKEN=your_actual_token_here
 ```
 
-Di Windows PowerShell, gunakan `Copy-Item .env.example .env` sebagai pengganti `cp`.
-Isi nilai wajib di `.env`, lalu jalankan:
+### 3. Generate Menu Pertama Kali
 
-```sh
-python bot.py
+```bash
+python generate_menu.py
 ```
 
-## Konfigurasi
+Gambar menu akan disimpan di `public/menu.png`
 
-| Variabel | Wajib | Keterangan |
-| --- | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Ya | Token dari @BotFather. |
-| `ALLOWED_TELEGRAM_USER_ID` | Ya | ID numerik akun Telegram yang boleh memakai bot. |
-| `DOWNLOAD_DIR` | Tidak | Direktori berkas sementara; default `downloads`. |
-| `MAX_FILE_SIZE_MB` | Tidak | Batas ukuran media sebelum dikirim; default `50`. |
-| `DISCORD_BOT_TOKEN` | Tidak | Mengaktifkan pemantauan voice Discord. |
-| `DISCORD_GUILD_ID` | Tidak | ID server Discord yang dipantau; kosong untuk semua server yang dapat diakses bot. |
-| `TIMEZONE` | Tidak | Zona waktu laporan voice; default `Asia/Jakarta`. |
-| `VOICE_DATABASE_PATH` | Tidak | Lokasi database SQLite; default `data/voice_stats.db`. |
-| `VOICE_EXPORT_DIR` | Tidak | Lokasi laporan Excel; default `data/exports`. |
-| `WEATHER_GEOCODER_URL` | Tidak | Endpoint Nominatim untuk pemetaan GPS. |
-| `INSTAGRAM_USERNAME`, `INSTAGRAM_PASSWORD` | Untuk Instagram | Akun downloader Instagram; login dapat terkena verifikasi atau rate limit. |
-| `TIKTOK_FALLBACK_URL` | Tidak | Halaman unduh alternatif saat semua metode TikTok gagal. |
-| `NEWS_SUMMARY_MODE` | Tidak | `auto` (default), `llm`, atau `extractive`. Mode `auto` tetap bekerja saat LLM mati. |
-| `NEWS_LLM_BASE_URL` | Tidak | Endpoint lokal llama-server; default `http://127.0.0.1:8080`. |
+### 4. Jalankan Bot
 
-Jangan commit atau membagikan `.env`, token, kredensial Instagram, maupun hasil unduhan.
-
-## Penggunaan di Telegram
-
-Kirim `/start` atau `/menu`, kemudian pilih layanan. `/help` menampilkan bantuan untuk menu yang sedang aktif.
-
-### Downloader
-
-- Kirim URL TikTok yang didukung (`tiktok.com`, `vm.tiktok.com`, atau `vt.tiktok.com`), URL YouTube (`youtube.com` atau `youtu.be`), atau URL post/reel Instagram.
-- Untuk TikTok dan YouTube, pilih **Biasa** atau **HD** setelah URL diterima.
-- Instagram mendukung post, reel, dan media story yang sesuai URL; untuk carousel bot mengambil item pertama.
-- Jalankan `/stalk <username>` untuk melihat profil TikTok publik.
-
-Gunakan hanya untuk konten publik yang berhak Anda unduh. Bot tidak menangani DRM, paywall, cookies, atau bypass kontrol akses.
-
-### Discord Voice
-
-| Perintah | Fungsi |
-| --- | --- |
-| `/stats` | Ringkasan seluruh aktivitas. |
-| `/today` | Aktivitas hari ini. |
-| `/history [hari]` | Riwayat 1–365 hari; default 7 hari. |
-| `/export [YYYY-MM]` | Mengirim laporan Excel untuk bulan yang dipilih. |
-| `/storage` | Ukuran database dan rentang data. |
-| `/delete YYYY-MM` | Menampilkan dampak penghapusan. |
-| `/confirm_delete YYYY-MM` | Menghapus data setelah bulan tersebut pernah diekspor. |
-
-Aktifkan **Server Members Intent** pada Discord Developer Portal dan berikan bot akses melihat channel serta voice state. Data disimpan lokal di SQLite. Waktu keluar voice saat bot offline tidak dapat dipulihkan dari Discord.
-
-### Prakiraan Cuaca Indonesia
-
-- Kirim `/cuaca`, lalu bagikan lokasi statis atau venue dari Telegram; live location tidak digunakan.
-- Kirim `/cuaca_manual` untuk memilih **provinsi → kota/kabupaten → kecamatan → kelurahan/desa**. Nama juga dapat diketik dan bot akan menawarkan pilihan yang cocok.
-- Sesi berlaku lima menit. Gunakan `/batal` untuk membatalkan.
-- Nilai prakiraan berasal dari [BMKG](https://data.bmkg.go.id/prakiraan-cuaca/); Nominatim/OpenStreetMap dan [Wilayah.id](https://wilayah.id) hanya digunakan untuk memetakan koordinat ke wilayah.
-
-Koordinat dikirim ke geocoder saat diminta dan tidak disimpan oleh aplikasi. Pemetaan menggunakan objek peta terdekat, bukan verifikasi batas wilayah berbasis poligon; periksa nama wilayah pada hasil, khususnya di perbatasan.
-
-### Konverter dokumen
-
-Kirim dokumen atau foto ke chat, lalu pilih format target yang ditawarkan bot. Hasil dan batasan setiap format ada di [docs/converter.md](docs/converter.md).
-
-### Berita
-
-Gunakan `/berita` untuk berita Indonesia terbaru atau `/berita nasional`,
-`/berita internasional`, `/berita teknologi`, `/berita ekonomi`,
-`/berita politik`, dan `/berita olahraga`. Jika LLM lokal tidak sehat, bot
-langsung memakai ringkasan penerbit atau memilih kalimat faktual dari artikel.
-Konfigurasi lengkap tersedia di [NEWS_SKILL_README.md](NEWS_SKILL_README.md).
-
-Untuk hasil Office ke PDF terbaik, instal LibreOffice dan pastikan `soffice` tersedia di `PATH` atau atur `LIBREOFFICE_BIN`. `poppler` diperlukan untuk PDF ke gambar dan `tesseract` diperlukan untuk OCR halaman hasil scan.
-
-## Pemeriksaan dan pengujian
-
-```sh
-python check_environment.py
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
+**Terminal 1 - Bot Telegram:**
+```bash
+python bot_telegram.py
 ```
 
-`check_environment.py` memeriksa dependency, binary sistem, akses direktori kerja, dan ruang penyimpanan tanpa mencetak token.
-
-## Dokumentasi teknis
-
-- [Konverter dokumen](docs/converter.md): tier konversi, dependency opsional, dan batasan format.
-- [BMKG Location Resolver](docs/resolver.md): API package resolver, instalasi mandiri, dan build wheel.
-
-## Struktur penting
-
-```text
-bot.py                         # Entry point Telegram bot
-config.py                      # Konfigurasi .env
-downloader.py                  # Downloader media
-discord_voice.py               # Monitor voice Discord
-voice_stats.py / voice_export.py
-weather.py / weather_card.py   # Integrasi dan kartu cuaca
-src/bmkg_location_resolver/    # Package resolver BMKG
-src/converter/                 # Mesin konversi dokumen
-tests/                         # Pengujian
+**Terminal 2 (Opsional) - Polling Service:**
+```bash
+python check_stok_changes.py
 ```
+
+Polling service akan check perubahan stok setiap 5 menit dan otomatis regenerate gambar jika ada perubahan.
+
+---
+
+## 📁 Struktur Folder
+
+```
+bot_honey/
+├── config.py                 # Konfigurasi (kategori, warna, dll)
+├── generate_menu.py          # Script generate gambar menu
+├── bot_telegram.py           # Telegram bot
+├── check_stok_changes.py     # Polling service untuk auto-update
+├── requirements.txt          # Dependencies
+├── .env.example              # Template environment variables
+├── .env                      # Environment variables (jangan commit!)
+├── public/
+│   └── menu.png              # Output gambar menu (auto-generated)
+└── cache/
+    └── menu_cache.json       # Cache untuk track perubahan
+```
+
+---
+
+## 🎨 Customization
+
+### Mengubah Kategori & Warna
+
+Edit di `config.py`:
+
+```python
+KATEGORI_MAP = {
+    "SAT_": "🍖 Lauk Satuan",
+    "ASIN_": "🐟 Ikan Asin & Lauk Tambahan",
+    # ... tambah atau edit sesuai kebutuhan
+}
+
+KATEGORI_COLOR = {
+    "🍖 Lauk Satuan": "#FF6B6B",  # Merah
+    "🐟 Ikan Asin & Lauk Tambahan": "#4ECDC4",  # Biru Muda
+    # ... ubah color hex sesuai selera
+}
+```
+
+### Mengubah Polling Interval
+
+Edit di `config.py`:
+
+```python
+POLLING_INTERVAL = 300  # Ubah ke berapa detik (default 5 menit = 300 detik)
+```
+
+### Mengubah Keyword Bot
+
+Edit di `bot_telegram.py` di fungsi `handle_message()`:
+
+```python
+menu_keywords = [
+    "menu nya apa saja",
+    "menu apa saja",
+    "apa menu",
+    # ... tambah keyword lain
+]
+```
+
+---
+
+## 📊 Workflow
+
+### Generate Menu Image
+
+```
+fetch CSV → filter stok > 0 & aktif → group by kategori → 
+→ generate gambar dengan PIL → save ke public/menu.png → cache hash
+```
+
+### Telegram Bot
+
+```
+user: "menu nya apa saja?"
+     ↓
+bot mendeteksi keyword
+     ↓
+check apakah menu.png ada
+     ↓
+kirim gambar ke user
+```
+
+### Polling Service
+
+```
+every 5 minutes:
+  - fetch CSV terbaru
+  - bandingkan hash dengan cache
+  - jika berbeda → regenerate gambar
+  - update cache
+```
+
+---
+
+## 🔧 Commands Bot
+
+| Command | Fungsi |
+|---------|--------|
+| `/start` | Tampilkan pesan sambutan |
+| `/help` | Tampilkan bantuan |
+| `/menu` | Tampilkan gambar menu |
+
+Atau cukup ketik salah satu keyword:
+- "menu nya apa saja?"
+- "menu apa saja?"
+- "apa menu?"
+- "menu hari ini?"
+- "menu"
+
+---
+
+## 📝 Logs & Debugging
+
+### Generate Menu
+```
+✓ Data fetched. Total items: 57
+✓ Filtered items (stok > 0 & aktif = TRUE): 55
+✓ Stok changes detected!
+✓ Menu image saved: public/menu.png
+✓ Menu generation completed successfully!
+```
+
+### Bot Running
+```
+🤖 Bot is running...
+Press Ctrl+C to stop the bot
+```
+
+### Polling Service
+```
+[Poll #1] 08/11/2026 23:30:00
+Checking for stok changes...
+✓ Data fetched. Total items: 57
+ℹ No changes detected. Skipping image regeneration.
+Next poll in 300 seconds...
+```
+
+---
+
+## ⚠️ Troubleshooting
+
+### Error: "TELEGRAM_TOKEN not set"
+→ Pastikan `.env` sudah dibuat dan berisi `TELEGRAM_TOKEN` yang valid
+
+### Menu image tidak tampil
+→ Pastikan folder `public/` ada, atau buat manual dengan `mkdir public`
+
+### Polling tidak berjalan
+→ Jalankan `check_stok_changes.py` di terminal terpisah
+
+### Gambar pixelated atau kecil
+→ Ubah `IMAGE_CONFIG['dpi']` atau `figsize` di `config.py`
+
+---
+
+## 📌 Notes
+
+- Google Sheets harus **Published to the web** agar CSV URL bisa diakses
+- Token Telegram harus **valid** dan bot harus **sudah dimulai** (user kirim `/start`)
+- Polling service berjalan independent dari bot, bisa dijalankan di server terpisah
+- Cache tersimpan di `cache/menu_cache.json` untuk detect perubahan
+
+---
+
+## 🎯 Next Steps (Webhook)
+
+Saat ini menggunakan **polling** (5 menit sekali check). Nanti bisa upgrade ke **webhook** agar lebih real-time:
+
+1. Setup Google Sheets trigger via **Google Apps Script**
+2. Webhook panggil endpoint bot ketika ada perubahan stok
+3. Bot immediate regenerate gambar tanpa menunggu polling interval
+
+---
+
+Happy coding! 🚀
