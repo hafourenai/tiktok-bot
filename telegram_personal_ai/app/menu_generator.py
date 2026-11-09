@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Menu image generator untuk catalog."""
+"""Menu image generator untuk catalog (Pure Python, no pandas required)."""
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
 
 log = logging.getLogger(__name__)
 
@@ -56,27 +58,31 @@ def get_kategori_color(kategori: str) -> tuple[int, int, int]:
     return color_map.get(kategori, (153, 153, 153))
 
 
-def format_price(price: int) -> str:
+def format_price(price: int | float | str) -> str:
     """Format harga ke Rupiah."""
     try:
-        return f"Rp {price:,}".replace(",", ".")
-    except:
+        return f"Rp {int(price):,}".replace(",", ".")
+    except (ValueError, TypeError):
         return "Rp 0"
 
 
-def get_data_hash(df: pd.DataFrame) -> str:
-    """Create hash dari data untuk detect perubahan."""
-    return str(hash(pd.util.hash_pandas_object(df).values.tobytes()))
+def compute_items_hash(items: list[dict]) -> str:
+    """Buat sha256 hash dari items (kode, harga, stok, aktif)."""
+    repr_str = "|".join(
+        f"{it.get('kode')}:{it.get('harga')}:{it.get('stok')}:{it.get('aktif')}"
+        for it in sorted(items, key=lambda x: str(x.get("kode", "")))
+    )
+    return hashlib.sha256(repr_str.encode("utf-8")).hexdigest()
 
 
 class MenuGenerator:
-    """Generator untuk menu image dari catalog data."""
+    """Generator untuk menu image dari catalog data tanpa dependensi pandas."""
 
     def __init__(self, output_dir: str = "public", cache_dir: str = "cache"):
         self.output_dir = Path(output_dir)
         self.cache_dir = Path(cache_dir)
-        self.output_dir.mkdir(exist_ok=True)
-        self.cache_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.menu_image = self.output_dir / "menu.png"
         self.menu_cache = self.cache_dir / "menu_cache.json"
 
@@ -84,31 +90,31 @@ class MenuGenerator:
         """Load cache data."""
         if self.menu_cache.exists():
             try:
-                with open(self.menu_cache, 'r', encoding='utf-8') as f:
+                with open(self.menu_cache, "r", encoding="utf-8") as f:
                     return json.load(f)
-            except:
+            except Exception:
                 return None
         return None
 
-    def _save_cache(self, df: pd.DataFrame) -> None:
+    def _save_cache(self, items: list[dict]) -> None:
         """Save cache data."""
         cache_data = {
-            'hash': get_data_hash(df),
-            'timestamp': datetime.now().isoformat(),
-            'count': len(df)
+            "hash": compute_items_hash(items),
+            "timestamp": datetime.now().isoformat(),
+            "count": len(items),
         }
-        with open(self.menu_cache, 'w', encoding='utf-8') as f:
+        with open(self.menu_cache, "w", encoding="utf-8") as f:
             json.dump(cache_data, f)
 
-    def _has_changes(self, df: pd.DataFrame) -> bool:
+    def _has_changes(self, items: list[dict]) -> bool:
         """Check apakah ada perubahan stok dibanding cache."""
-        current_hash = get_data_hash(df)
+        current_hash = compute_items_hash(items)
         cache = self._load_cache()
 
         if cache is None:
-            return True  # First time
+            return True
 
-        if current_hash != cache.get('hash'):
+        if current_hash != cache.get("hash"):
             log.info("[OK] Stok changes detected")
             return True
 
@@ -121,21 +127,30 @@ class MenuGenerator:
             items: List of dicts dengan keys: kode, nama, harga, stok, aktif
             
         Returns:
-            True jika image di-generate, False jika tidak ada perubahan
+            True jika image di-generate, False jika tidak ada perubahan atau error
         """
+        if not HAS_PIL:
+            log.warning("[!] Pillow (PIL) belum terpasang. Gambar menu tidak dapat di-generate.")
+            return False
+
         if not items:
             log.warning("[!] No items to generate")
             return False
 
-        # Convert ke DataFrame
-        df = pd.DataFrame(items)
-        df['stok'] = pd.to_numeric(df['stok'], errors='coerce')
-        df['aktif'] = df['aktif'].astype(str).str.upper()
+        # Filter: stok > 0 dan aktif == TRUE
+        filtered: list[dict] = []
+        for it in items:
+            try:
+                stok_val = float(it.get("stok", 0))
+            except (ValueError, TypeError):
+                stok_val = 0
+            
+            aktif_val = str(it.get("aktif", "")).strip().upper()
+            if stok_val > 0 and aktif_val == "TRUE":
+                filtered.append(it)
 
-        # Filter: stok > 0 dan aktif
-        filtered = df[(df['stok'] > 0) & (df['aktif'] == 'TRUE')].copy()
-        if len(filtered) == 0:
-            log.warning("[!] No active items available")
+        if not filtered:
+            log.warning("[!] No active items available with stock > 0")
             return False
 
         log.info(f"[OK] Filtered items: {len(filtered)}")
@@ -146,7 +161,6 @@ class MenuGenerator:
             return False
 
         # Group by kategori
-        filtered['kategori'] = filtered['kode'].apply(normalize_kategori)
         kategori_order = [
             "🍖 Lauk Satuan",
             "🐟 Ikan Asin & Lauk Tambahan",
@@ -162,10 +176,15 @@ class MenuGenerator:
             "🧃 Paket Es Jeruk",
         ]
 
-        grouped = {}
-        for kat in kategori_order:
-            if kat in filtered['kategori'].values:
-                grouped[kat] = filtered[filtered['kategori'] == kat].reset_index(drop=True)
+        grouped: dict[str, list[dict]] = {kat: [] for kat in kategori_order}
+        for it in filtered:
+            kat = normalize_kategori(str(it.get("kode", "")))
+            if kat not in grouped:
+                grouped[kat] = []
+            grouped[kat].append(it)
+
+        # Buang kategori yang kosong
+        grouped = {k: v for k, v in grouped.items() if v}
 
         # Generate image
         self._generate_image(grouped)
@@ -176,8 +195,8 @@ class MenuGenerator:
         log.info(f"[OK] Menu image saved: {self.menu_image}")
         return True
 
-    def _generate_image(self, grouped_items: dict) -> None:
-        """Generate gambar menu menggunakan PIL."""
+    def _generate_image(self, grouped_items: dict[str, list[dict]]) -> None:
+        """Generate gambar menu menggunakan PIL murni."""
         total_items = sum(len(items) for items in grouped_items.values())
         total_categories = len(grouped_items)
 
@@ -186,30 +205,28 @@ class MenuGenerator:
         img_height = 200 + (total_items * 40) + (total_categories * 50)
 
         # Create image
-        img = Image.new('RGB', (img_width, img_height), color='#F8F9FA')
+        img = Image.new("RGB", (img_width, img_height), color="#F8F9FA")
         draw = ImageDraw.Draw(img)
 
-        # Font setup
+        # Font setup (fallback ke default jika arial.ttf tidak ada di sistem)
         try:
             title_font = ImageFont.truetype("arial.ttf", 48)
             category_font = ImageFont.truetype("arial.ttf", 24)
             item_font = ImageFont.truetype("arial.ttf", 20)
             price_font = ImageFont.truetype("arial.ttf", 18)
-        except:
+        except Exception:
             title_font = ImageFont.load_default()
             category_font = ImageFont.load_default()
             item_font = ImageFont.load_default()
             price_font = ImageFont.load_default()
 
-        y_position = 30
-
         # Header
-        draw.rectangle([(0, 0), (img_width, 100)], fill='#2C3E50')
+        draw.rectangle([(0, 0), (img_width, 100)], fill="#2C3E50")
         header_text = "MENU TERSEDIA"
         bbox = draw.textbbox((0, 0), header_text, font=title_font)
         text_width = bbox[2] - bbox[0]
         x_center = (img_width - text_width) // 2
-        draw.text((x_center, 25), header_text, fill='#FFFFFF', font=title_font)
+        draw.text((x_center, 25), header_text, fill="#FFFFFF", font=title_font)
 
         y_position = 120
 
@@ -218,28 +235,28 @@ class MenuGenerator:
             # Category header
             rgb_color = get_kategori_color(kategori)
             draw.rectangle([(20, y_position), (img_width - 20, y_position + 40)], fill=rgb_color)
-            draw.text((40, y_position + 8), kategori, fill='#FFFFFF', font=category_font)
+            draw.text((40, y_position + 8), kategori, fill="#FFFFFF", font=category_font)
             y_position += 50
 
             # Items
-            for idx, (_, item) in enumerate(items.iterrows()):
-                nama = item['nama']
-                harga = format_price(int(item['harga']))
+            for idx, item in enumerate(items):
+                nama = str(item.get("nama", ""))
+                harga = format_price(item.get("harga", 0))
 
                 # Alternating row colors
                 if idx % 2 == 0:
-                    draw.rectangle([(20, y_position), (img_width - 20, y_position + 38)], fill='#FFFFFF')
+                    draw.rectangle([(20, y_position), (img_width - 20, y_position + 38)], fill="#FFFFFF")
                 else:
-                    draw.rectangle([(20, y_position), (img_width - 20, y_position + 38)], fill='#F0F0F0')
+                    draw.rectangle([(20, y_position), (img_width - 20, y_position + 38)], fill="#F0F0F0")
 
                 # Item name
-                draw.text((50, y_position + 6), nama, fill='#2C3E50', font=item_font)
+                draw.text((50, y_position + 6), nama, fill="#2C3E50", font=item_font)
 
                 # Price
-                draw.text((img_width - 250, y_position + 6), harga, fill='#27AE60', font=price_font)
+                draw.text((img_width - 250, y_position + 6), harga, fill="#27AE60", font=price_font)
 
                 # Status
-                draw.text((img_width - 120, y_position + 6), "[OK]", fill='#27AE60', font=price_font)
+                draw.text((img_width - 120, y_position + 6), "[OK]", fill="#27AE60", font=price_font)
 
                 y_position += 40
 
@@ -247,7 +264,7 @@ class MenuGenerator:
 
         # Footer
         footer_text = f"Update: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        draw.text((40, y_position + 20), footer_text, fill='#7F8C8D', font=price_font)
+        draw.text((40, y_position + 20), footer_text, fill="#7F8C8D", font=price_font)
 
         # Save
         img.save(self.menu_image, quality=95)
