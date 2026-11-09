@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Menu image generator untuk catalog (Pure Python, no pandas required)."""
+"""Menu image generator untuk catalog (Pure Python, Termux-ready)."""
 from __future__ import annotations
 
 import hashlib
@@ -20,42 +20,42 @@ log = logging.getLogger(__name__)
 def normalize_kategori(kode: str) -> str:
     """Get kategori berdasarkan prefix kode."""
     kategori_map = {
-        "SAT_": "🍖 Lauk Satuan",
-        "ASIN_": "🐟 Ikan Asin & Lauk Tambahan",
-        "SAY_": "🥬 Sayuran",
-        "PEL_": "🌶️ Pelengkap",
-        "MIN_": "🥤 Minuman",
-        "KEM_": "📦 Kemasan",
-        "REG_": "🍚 Paket Reguler",
+        "REG_": "🍱 Paket Reguler",
         "KEL_": "👨‍👩‍👧‍👦 Paket Sekeluarga",
         "RAM_": "🌙 Paket Ramadhan",
         "JUK_": "🍲 Paket Combo Jukut",
-        "TEH_": "🧋 Paket Es Teh Manis",
-        "JER_": "🧃 Paket Es Jeruk",
+        "TEH_": "🧋 Paket Combo Es Teh",
+        "JER_": "🧃 Paket Combo Es Jeruk",
+        "SAT_": "🍗 Lauk Satuan",
+        "ASIN_": "🐟 Ikan Asin & Tambahan",
+        "SAY_": "🥗 Sayuran",
+        "PEL_": "🌶️ Pelengkap & Sambel",
+        "MIN_": "🥤 Minuman",
+        "KEM_": "📦 Kemasan",
     }
     for prefix, kategori in kategori_map.items():
         if kode.startswith(prefix):
             return kategori
-    return "Lainnya"
+    return "🍽️ Menu Lainnya"
 
 
-def get_kategori_color(kategori: str) -> tuple[int, int, int]:
-    """Get RGB color untuk kategori."""
-    color_map = {
-        "🍖 Lauk Satuan": (255, 107, 107),
-        "🐟 Ikan Asin & Lauk Tambahan": (78, 205, 196),
-        "🥬 Sayuran": (149, 225, 211),
-        "🌶️ Pelengkap": (255, 165, 2),
-        "🥤 Minuman": (0, 180, 216),
-        "📦 Kemasan": (199, 179, 229),
-        "🍚 Paket Reguler": (255, 183, 3),
-        "👨‍👩‍👧‍👦 Paket Sekeluarga": (251, 86, 7),
-        "🌙 Paket Ramadhan": (131, 56, 236),
-        "🍲 Paket Combo Jukut": (255, 190, 11),
-        "🧋 Paket Es Teh Manis": (82, 183, 136),
-        "🧃 Paket Es Jeruk": (6, 255, 165),
+def get_kategori_theme(kategori: str) -> dict:
+    """Warna aksen dan background header per kategori."""
+    themes = {
+        "🍱 Paket Reguler": {"bg": (225, 112, 85), "text": (255, 255, 255)},
+        "👨‍👩‍👧‍👦 Paket Sekeluarga": {"bg": (214, 48, 49), "text": (255, 255, 255)},
+        "🌙 Paket Ramadhan": {"bg": (108, 92, 231), "text": (255, 255, 255)},
+        "🍲 Paket Combo Jukut": {"bg": (230, 126, 34), "text": (255, 255, 255)},
+        "🧋 Paket Combo Es Teh": {"bg": (39, 174, 96), "text": (255, 255, 255)},
+        "🧃 Paket Combo Es Jeruk": {"bg": (243, 156, 18), "text": (255, 255, 255)},
+        "🍗 Lauk Satuan": {"bg": (192, 57, 43), "text": (255, 255, 255)},
+        "🐟 Ikan Asin & Tambahan": {"bg": (22, 160, 133), "text": (255, 255, 255)},
+        "🥗 Sayuran": {"bg": (46, 204, 113), "text": (255, 255, 255)},
+        "🌶️ Pelengkap & Sambel": {"bg": (231, 76, 60), "text": (255, 255, 255)},
+        "🥤 Minuman": {"bg": (41, 128, 185), "text": (255, 255, 255)},
+        "📦 Kemasan": {"bg": (127, 140, 141), "text": (255, 255, 255)},
     }
-    return color_map.get(kategori, (153, 153, 153))
+    return themes.get(kategori, {"bg": (52, 73, 94), "text": (255, 255, 255)})
 
 
 def format_price(price: int | float | str) -> str:
@@ -67,7 +67,7 @@ def format_price(price: int | float | str) -> str:
 
 
 def compute_items_hash(items: list[dict]) -> str:
-    """Buat sha256 hash dari items (kode, harga, stok, aktif)."""
+    """Buat sha256 hash dari seluruh item (kode, harga, stok, aktif)."""
     repr_str = "|".join(
         f"{it.get('kode')}:{it.get('harga')}:{it.get('stok')}:{it.get('aktif')}"
         for it in sorted(items, key=lambda x: str(x.get("kode", "")))
@@ -76,7 +76,7 @@ def compute_items_hash(items: list[dict]) -> str:
 
 
 class MenuGenerator:
-    """Generator untuk menu image dari catalog data tanpa dependensi pandas."""
+    """Generator gambar menu modern 2 kolom berbasis Pillow murni."""
 
     def __init__(self, output_dir: str = "public", cache_dir: str = "cache"):
         self.output_dir = Path(output_dir)
@@ -87,7 +87,6 @@ class MenuGenerator:
         self.menu_cache = self.cache_dir / "menu_cache.json"
 
     def _load_cache(self) -> dict | None:
-        """Load cache data."""
         if self.menu_cache.exists():
             try:
                 with open(self.menu_cache, "r", encoding="utf-8") as f:
@@ -97,7 +96,6 @@ class MenuGenerator:
         return None
 
     def _save_cache(self, items: list[dict]) -> None:
-        """Save cache data."""
         cache_data = {
             "hash": compute_items_hash(items),
             "timestamp": datetime.now().isoformat(),
@@ -107,170 +105,211 @@ class MenuGenerator:
             json.dump(cache_data, f)
 
     def _has_changes(self, items: list[dict]) -> bool:
-        """Check apakah ada perubahan stok dibanding cache."""
         current_hash = compute_items_hash(items)
         cache = self._load_cache()
-
-        if cache is None:
+        if cache is None or current_hash != cache.get("hash"):
             return True
-
-        if current_hash != cache.get("hash"):
-            log.info("[OK] Stok changes detected")
-            return True
-
         return False
 
     def generate(self, items: list[dict]) -> bool:
-        """Generate gambar menu dari item list.
-        
-        Args:
-            items: List of dicts dengan keys: kode, nama, harga, stok, aktif
-            
-        Returns:
-            True jika image di-generate, False jika tidak ada perubahan atau error
-        """
+        """Filter stok > 0 & aktif == TRUE, lalu buat gambar 2 kolom."""
         if not HAS_PIL:
-            log.warning("[!] Pillow (PIL) belum terpasang. Gambar menu tidak dapat di-generate.")
+            log.warning("[!] Pillow belum terpasang. Gambar menu dilewati.")
             return False
 
         if not items:
-            log.warning("[!] No items to generate")
+            log.warning("[!] Data menu kosong")
             return False
 
-        # Filter: stok > 0 dan aktif == TRUE
-        filtered: list[dict] = []
+        # Filter stok > 0 dan aktif
+        available_items: list[dict] = []
         for it in items:
             try:
                 stok_val = float(it.get("stok", 0))
             except (ValueError, TypeError):
                 stok_val = 0
-            
+
             aktif_val = str(it.get("aktif", "")).strip().upper()
             if stok_val > 0 and aktif_val == "TRUE":
-                filtered.append(it)
+                available_items.append(it)
 
-        if not filtered:
-            log.warning("[!] No active items available with stock > 0")
+        if not available_items:
+            log.warning("[!] Tidak ada menu dengan stok > 0")
             return False
 
-        log.info(f"[OK] Filtered items: {len(filtered)}")
-
-        # Check changes
-        if not self._has_changes(filtered):
-            log.info("[i] No changes detected, skipping regeneration")
+        # Cek perubahan cache
+        if not self._has_changes(available_items):
+            log.info("[i] Stok tidak berubah, menggunakan gambar menu yang sudah ada")
             return False
 
-        # Group by kategori
-        kategori_order = [
-            "🍖 Lauk Satuan",
-            "🐟 Ikan Asin & Lauk Tambahan",
-            "🥬 Sayuran",
-            "🌶️ Pelengkap",
-            "🥤 Minuman",
-            "📦 Kemasan",
-            "🍚 Paket Reguler",
+        log.info(f"[OK] Membuat gambar menu untuk {len(available_items)} item tersedia...")
+
+        # Kategori terurut logis (Paket-paket dulu di Kolom 1, Satuan/Pelengkap di Kolom 2)
+        col1_categories = [
+            "🍱 Paket Reguler",
             "👨‍👩‍👧‍👦 Paket Sekeluarga",
             "🌙 Paket Ramadhan",
             "🍲 Paket Combo Jukut",
-            "🧋 Paket Es Teh Manis",
-            "🧃 Paket Es Jeruk",
+            "🧋 Paket Combo Es Teh",
+            "🧃 Paket Combo Es Jeruk",
+        ]
+        col2_categories = [
+            "🍗 Lauk Satuan",
+            "🐟 Ikan Asin & Tambahan",
+            "🥗 Sayuran",
+            "🌶️ Pelengkap & Sambel",
+            "🥤 Minuman",
+            "📦 Kemasan",
+            "🍽️ Menu Lainnya",
         ]
 
-        grouped: dict[str, list[dict]] = {kat: [] for kat in kategori_order}
-        for it in filtered:
+        grouped: dict[str, list[dict]] = {}
+        for it in available_items:
             kat = normalize_kategori(str(it.get("kode", "")))
             if kat not in grouped:
                 grouped[kat] = []
             grouped[kat].append(it)
 
-        # Buang kategori yang kosong
-        grouped = {k: v for k, v in grouped.items() if v}
-
-        # Generate image
-        self._generate_image(grouped)
-
-        # Save cache
-        self._save_cache(filtered)
-
-        log.info(f"[OK] Menu image saved: {self.menu_image}")
+        self._render_image(col1_categories, col2_categories, grouped, len(available_items))
+        self._save_cache(available_items)
+        log.info(f"[OK] Gambar menu berhasil disimpan: {self.menu_image}")
         return True
 
-    def _generate_image(self, grouped_items: dict[str, list[dict]]) -> None:
-        """Generate gambar menu menggunakan PIL murni."""
-        total_items = sum(len(items) for items in grouped_items.values())
-        total_categories = len(grouped_items)
+    def _render_image(
+        self,
+        col1_cats: list[str],
+        col2_cats: list[str],
+        grouped: dict[str, list[dict]],
+        total_items: int,
+    ) -> None:
+        """Render desain menu restoran 2-kolom dengan tipografi modern."""
+        width = 1350
 
-        # Image dimensions
-        img_width = 1200
-        img_height = 200 + (total_items * 40) + (total_categories * 50)
+        # Hitung tinggi yang dibutuhkan per kolom
+        def calc_col_height(cat_list: list[str]) -> int:
+            h = 0
+            for cat in cat_list:
+                items = grouped.get(cat, [])
+                if not items:
+                    continue
+                h += 48  # header kategori
+                for item in items:
+                    desc = str(item.get("deskripsi", "")).strip()
+                    h += 46 if desc else 34
+                h += 18  # margin antar kategori
+            return h
 
-        # Create image
-        img = Image.new("RGB", (img_width, img_height), color="#F8F9FA")
+        h_col1 = calc_col_height(col1_cats)
+        h_col2 = calc_col_height(col2_cats)
+        content_height = max(h_col1, h_col2)
+
+        header_h = 130
+        footer_h = 70
+        height = header_h + content_height + footer_h + 40
+
+        img = Image.new("RGB", (width, height), color="#1E272E")  # Dark modern background
         draw = ImageDraw.Draw(img)
 
-        # Font setup (fallback ke default jika arial.ttf tidak ada di sistem)
+        # Muat font
         try:
-            title_font = ImageFont.truetype("arial.ttf", 48)
-            category_font = ImageFont.truetype("arial.ttf", 24)
-            item_font = ImageFont.truetype("arial.ttf", 20)
-            price_font = ImageFont.truetype("arial.ttf", 18)
+            font_title = ImageFont.truetype("arial.ttf", 38)
+            font_subtitle = ImageFont.truetype("arial.ttf", 16)
+            font_cat = ImageFont.truetype("arial.ttf", 20)
+            font_item = ImageFont.truetype("arial.ttf", 18)
+            font_desc = ImageFont.truetype("arial.ttf", 13)
+            font_price = ImageFont.truetype("arial.ttf", 17)
+            font_footer = ImageFont.truetype("arial.ttf", 15)
         except Exception:
-            title_font = ImageFont.load_default()
-            category_font = ImageFont.load_default()
-            item_font = ImageFont.load_default()
-            price_font = ImageFont.load_default()
+            font_title = ImageFont.load_default()
+            font_subtitle = font_cat = font_item = font_desc = font_price = font_footer = font_title
 
-        # Header
-        draw.rectangle([(0, 0), (img_width, 100)], fill="#2C3E50")
-        header_text = "MENU TERSEDIA"
-        bbox = draw.textbbox((0, 0), header_text, font=title_font)
-        text_width = bbox[2] - bbox[0]
-        x_center = (img_width - text_width) // 2
-        draw.text((x_center, 25), header_text, fill="#FFFFFF", font=title_font)
+        # 1. Header Banner
+        draw.rectangle([(0, 0), (width, header_h)], fill="#0F141A")
+        # Garis aksen emas/oranye di bawah header
+        draw.rectangle([(0, header_h - 4), (width, header_h)], fill="#F39C12")
 
-        y_position = 120
+        title_text = "DAFTAR MENU & STOK TERSEDIA"
+        t_box = draw.textbbox((0, 0), title_text, font=font_title)
+        draw.text(((width - (t_box[2] - t_box[0])) // 2, 28), title_text, fill="#FFFFFF", font=font_title)
 
-        # Categories and items
-        for kategori, items in grouped_items.items():
-            # Category header
-            rgb_color = get_kategori_color(kategori)
-            draw.rectangle([(20, y_position), (img_width - 20, y_position + 40)], fill=rgb_color)
-            draw.text((40, y_position + 8), kategori, fill="#FFFFFF", font=category_font)
-            y_position += 50
+        sub_text = f"REALTIME STOCK • {total_items} MENU TERSEDIA • SIAP DIORDER"
+        s_box = draw.textbbox((0, 0), sub_text, font=font_subtitle)
+        draw.text(((width - (s_box[2] - s_box[0])) // 2, 80), sub_text, fill="#F1C40F", font=font_subtitle)
 
-            # Items
-            for idx, item in enumerate(items):
-                nama = str(item.get("nama", ""))
-                harga = format_price(item.get("harga", 0))
+        # 2. Render Kolom
+        col_w = 620
+        col1_x = 35
+        col2_x = 695
+        start_y = header_h + 25
 
-                # Alternating row colors
-                if idx % 2 == 0:
-                    draw.rectangle([(20, y_position), (img_width - 20, y_position + 38)], fill="#FFFFFF")
-                else:
-                    draw.rectangle([(20, y_position), (img_width - 20, y_position + 38)], fill="#F0F0F0")
+        def render_column(cat_list: list[str], start_x: int) -> None:
+            curr_y = start_y
+            for cat in cat_list:
+                items = grouped.get(cat, [])
+                if not items:
+                    continue
 
-                # Item name
-                draw.text((50, y_position + 6), nama, fill="#2C3E50", font=item_font)
+                theme = get_kategori_theme(cat)
 
-                # Price
-                draw.text((img_width - 250, y_position + 6), harga, fill="#27AE60", font=price_font)
+                # Header kategori
+                draw.rounded_rectangle(
+                    [(start_x, curr_y), (start_x + col_w, curr_y + 36)],
+                    radius=6,
+                    fill=theme["bg"],
+                )
+                draw.text((start_x + 14, curr_y + 7), cat, fill=theme["text"], font=font_cat)
+                curr_y += 44
 
-                # Status
-                draw.text((img_width - 120, y_position + 6), "[OK]", fill="#27AE60", font=price_font)
+                # Daftar Item
+                for i, it in enumerate(items):
+                    nama = str(it.get("nama", "")).strip()
+                    harga = format_price(it.get("harga", 0))
+                    desc = str(it.get("deskripsi", "")).strip()
 
-                y_position += 40
+                    row_h = 44 if desc else 32
+                    row_bg = "#25303B" if (i % 2 == 0) else "#1F2832"
 
-            y_position += 10
+                    draw.rounded_rectangle(
+                        [(start_x, curr_y), (start_x + col_w, curr_y + row_h - 2)],
+                        radius=4,
+                        fill=row_bg,
+                    )
 
-        # Footer
-        footer_text = f"Update: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        draw.text((40, y_position + 20), footer_text, fill="#7F8C8D", font=price_font)
+                    # Nama item
+                    draw.text((start_x + 12, curr_y + 6), nama, fill="#ECF0F1", font=font_item)
 
-        # Save
-        img.save(self.menu_image, quality=95)
+                    # Harga
+                    p_box = draw.textbbox((0, 0), harga, font=font_price)
+                    pw = p_box[2] - p_box[0]
+                    draw.text((start_x + col_w - pw - 14, curr_y + 6), harga, fill="#2ECC71", font=font_price)
+
+                    # Deskripsi / Isi paket
+                    if desc:
+                        if len(desc) > 68:
+                            desc = desc[:65] + "..."
+                        draw.text((start_x + 14, curr_y + 26), f"Isi: {desc}", fill="#BDC3C7", font=font_desc)
+
+                    curr_y += row_h
+
+                curr_y += 16  # Jarak antar grup kategori
+
+        render_column(col1_cats, col1_x)
+        render_column(col2_cats, col2_x)
+
+        # 3. Footer
+        now_str = datetime.now().strftime("%d/%m/%Y pukul %H:%M WIB")
+        footer_y = height - footer_h
+        draw.rectangle([(0, footer_y), (width, height)], fill="#0F141A")
+        draw.rectangle([(0, footer_y), (width, footer_y + 2)], fill="#2C3E50")
+
+        f_text = f"Diperbarui otomatis: {now_str} • Hanya menu berstok aktif yang ditampilkan."
+        f_box = draw.textbbox((0, 0), f_text, font=font_footer)
+        draw.text(((width - (f_box[2] - f_box[0])) // 2, footer_y + 25), f_text, fill="#95A5A6", font=font_footer)
+
+        # Simpan gambar kualitas tinggi
+        img.save(self.menu_image, format="PNG", quality=95)
 
     def get_menu_path(self) -> Path | None:
-        """Get path ke menu image jika ada."""
         if self.menu_image.exists():
             return self.menu_image
         return None
