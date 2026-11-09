@@ -11,7 +11,7 @@ import httpx
 from .config import Settings
 from .catalog import SheetsCatalog
 from .llm import LlmClient
-from .menu_generator import MenuGenerator
+from .menu_generator import MenuImageProvider
 from .models import ConversationState
 from .rag import RagEngine
 from .storage import Storage
@@ -34,7 +34,7 @@ class AssistantService:
         self.llm = llm
         self.sender = sender
         self.catalog = catalog
-        self.menu_generator = MenuGenerator()
+        self.menu_provider = MenuImageProvider()
         self.tasks: dict[int, asyncio.Task] = {}
         # Per-chat spam tracking: {chat_id: (window_start_time, message_count, warned)}
         self.spam_tracker: dict[int, tuple[datetime, int, bool]] = {}
@@ -186,46 +186,16 @@ class AssistantService:
         normalized = text.lower().strip()
         return any(re.search(pattern, normalized) for pattern in menu_keywords)
 
-    async def get_menu_image_path(self, question: str) -> str | None:
-        """Get menu image path jika user request menu.
+    async def get_menu_image_paths(self, question: str) -> list[str]:
+        """Get menu image paths jika user request menu.
         
-        Returns path ke image atau None jika bukan menu request.
+        Returns list path gambar atau list kosong jika bukan menu request.
         """
         if not self._is_menu_request(question):
-            return None
-        
-        # Get items dari catalog
-        try:
-            if not self.catalog:
-                return None
-            items = await self.catalog.items()
-            if not items:
-                return None
-            
-            # Convert MenuItem objects ke dict untuk generator
-            items_data = [
-                {
-                    'kode': item.code,
-                    'nama': item.name,
-                    'harga': item.price,
-                    'stok': item.stock,
-                    'aktif': 'TRUE' if item.active else 'FALSE',
-                    'deskripsi': item.description,
-                }
-                for item in items
-            ]
-            
-            # Generate menu image
-            self.menu_generator.generate(items_data)
-            
-            # Return path
-            menu_path = self.menu_generator.get_menu_path()
-            if menu_path:
-                return str(menu_path)
-        except Exception as exc:
-            log.warning("Gagal generate menu image: %s", exc)
-        
-        return None
+            return []
+
+        images = self.menu_provider.get_menu_images()
+        return [str(p) for p in images]
 
     async def shutdown(self) -> None:
         tasks = list(self.tasks.values())
